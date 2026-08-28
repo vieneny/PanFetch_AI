@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -51,10 +52,14 @@ from panfetch_ai.core.models import OperationPlan, OperationResult, PlanPreview,
 from panfetch_ai.core.history import ConversationStore
 from panfetch_ai.core.netdisk import BaiduNetdiskClient, NetdiskError, normalize_remote_path
 from panfetch_ai.core.operations import NetdiskOperationExecutor, build_operation_plan
+from panfetch_ai.core.plan_history import PlanHistoryRecord, PlanHistoryStore, PlanHistorySummary
+from panfetch_ai.core.plan_preview import download_preview_tree
 from panfetch_ai.core.planner import LLMPlanner
 from panfetch_ai.core.rules import build_preview
 from panfetch_ai.core.structure import chapter_lines, items_to_csv, tree_text
 from panfetch_ai.ui.assistant_page import AssistantPage, ChatInput
+from panfetch_ai.ui.download_plan_tree import DownloadPlanTree
+from panfetch_ai.ui.plan_history_page import PlanHistoryPage
 from panfetch_ai.ui.settings_dialog import SettingsDialog
 from panfetch_ai.ui.workers import TaskRunner
 from panfetch_ai.logging_setup import log_info
@@ -83,6 +88,8 @@ class MainWindow(QMainWindow):
         self.catalog = Catalog()
         self.conversation_store = ConversationStore()
         self.conversation_store.repair_encoding()
+        plan_history_path = os.getenv("PANFETCH_PLAN_HISTORY_DB", "").strip()
+        self.plan_history_store = PlanHistoryStore(Path(plan_history_path) if plan_history_path else None)
         self.thread_pool = QThreadPool.globalInstance()
         self._workers: set[TaskRunner] = set()
         self.current_path = "/"
@@ -102,7 +109,6 @@ class MainWindow(QMainWindow):
         self._home_run_id = 0
         self._home_cancellation: CancellationToken | None = None
         self._home_planner: LLMPlanner | None = None
-        self._latest_result_page = 1
 
         self.setWindowTitle("PanFetch AI")
         self.setMinimumSize(1120, 720)
@@ -122,15 +128,18 @@ class MainWindow(QMainWindow):
         self.workspace_page = self._build_workspace_page()
         self.plan_page = self._build_plan_page()
         self.operation_page = self._build_operation_page()
+        self.plan_history_page = self._build_plan_history_page()
         self.page_stack.addWidget(self.home_page)
         self.page_stack.addWidget(self.workspace_page)
         self.page_stack.addWidget(self.plan_page)
         self.page_stack.addWidget(self.operation_page)
+        self.page_stack.addWidget(self.plan_history_page)
         central_layout.addWidget(self.page_stack, 1)
         central_layout.addWidget(self._build_task_bar())
         self.setCentralWidget(central)
         self.switch_page(0)
         self._reload_conversation_list()
+        self._reload_plan_history()
         self.statusBar().showMessage("正在检查百度网盘授权…")
 
     def _build_workspace_page(self) -> QWidget:
@@ -188,7 +197,7 @@ class MainWindow(QMainWindow):
 
     def switch_page(self, index: int) -> None:
         self.page_stack.setCurrentIndex(index)
-        is_home = index == 0
+        is_home = index in {0, 4}
         is_workspace = index in {1, 2, 3}
         self.home_nav.setProperty("active", is_home)
         self.workspace_nav.setProperty("active", is_workspace)
@@ -197,13 +206,13 @@ class MainWindow(QMainWindow):
             button.style().polish(button)
         self.refresh_action.setVisible(index == 1)
         if hasattr(self, "task_bar"):
-            self.task_bar.setVisible(index in {1, 2})
+            self.task_bar.setVisible(index == 1 or (index == 2 and self.download_running))
 
     def _build_home_page(self) -> QWidget:
         page = AssistantPage()
         page.new_chat_button.clicked.connect(self.new_conversation)
         page.history_list.itemClicked.connect(self.load_conversation)
-        page.open_result_button.clicked.connect(self.open_latest_result)
+        page.open_result_button.clicked.connect(self.open_plan_history)
         page.scope_combo.currentIndexChanged.connect(self._scope_changed)
         page.use_current_button.clicked.connect(self._use_current_scope)
         page.input.send_requested.connect(self.send_home_request)
@@ -229,6 +238,13 @@ class MainWindow(QMainWindow):
         self.agent_history = self.home_conversation
         self.agent_send_button = self.home_send_button
         self.assistant_steps = self.home_stage
+        return page
+
+    def _build_plan_history_page(self) -> QWidget:
+        page = PlanHistoryPage()
+        page.back_button.clicked.connect(lambda: self.switch_page(0))
+        page.open_button.clicked.connect(self.open_selected_plan)
+        page.table.itemDoubleClicked.connect(lambda _: self.open_selected_plan())
         return page
 
     def _build_directory_panel(self) -> QWidget:
@@ -426,9 +442,9 @@ class MainWindow(QMainWindow):
         title_box.addWidget(heading)
         title_box.addWidget(subtitle)
         heading_row.addLayout(title_box, 1)
-        back_button = QPushButton("返回工作台")
+        back_button = QPushButton("返回计划列表")
         back_button.setIcon(self._icon(QStyle.StandardPixmap.SP_ArrowBack))
-        back_button.clicked.connect(lambda: self.switch_page(1))
+        back_button.clicked.connect(self.open_plan_history)
         heading_row.addWidget(back_button)
         layout.addLayout(heading_row)
 
@@ -441,24 +457,9 @@ class MainWindow(QMainWindow):
         summary_layout.addWidget(self.plan_summary)
         layout.addWidget(summary_band)
 
-        self.plan_table = QTableWidget(0, 5)
-        self.plan_table.setHorizontalHeaderLabels(["选", "名称", "类型", "大小", "网盘路径"])
-        self.plan_table.setAlternatingRowColors(True)
-        self.plan_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.plan_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.plan_table.verticalHeader().setVisible(False)
-        self.plan_table.itemChanged.connect(lambda _: self._update_plan_selection_summary())
-        plan_header = self.plan_table.horizontalHeader()
-        plan_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        plan_header.resizeSection(0, 42)
-        plan_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        plan_header.resizeSection(1, 300)
-        plan_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        plan_header.resizeSection(2, 90)
-        plan_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        plan_header.resizeSection(3, 110)
-        plan_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        layout.addWidget(self.plan_table, 1)
+        self.plan_tree = DownloadPlanTree()
+        self.plan_tree.selection_changed.connect(self._update_plan_selection_summary)
+        layout.addWidget(self.plan_tree, 1)
 
         selection_row = QHBoxLayout()
         select_all = QPushButton("全选")
@@ -657,8 +658,6 @@ class MainWindow(QMainWindow):
         self.home_trace.clear()
         self.home_stage.setText("等待提问")
         self.home_stop_button.setEnabled(False)
-        self.open_result_button.setEnabled(False)
-        self.open_result_button.setText("查看工作台结果")
         self.history_list.clearSelection()
         self.home_input.setFocus()
 
@@ -848,17 +847,11 @@ class MainWindow(QMainWindow):
         result = workflow_result.result
         if result.items:
             self.catalog.upsert(result.items)
-            self.open_result_button.setEnabled(True)
         if result.preview is not None:
-            self._plan_ready(result.preview)
+            self._plan_ready(result.preview, request=request)
         elif result.operation is not None:
             self._show_operation_plan(result.operation)
-            self.open_result_button.setText("查看操作计划")
-            self.open_result_button.setEnabled(True)
-            self._latest_result_page = 3
         elif result.items:
-            self.open_result_button.setText("查看工作台结果")
-            self._latest_result_page = 1
             self.current_items = result.items
             if result.path:
                 self.current_path = result.path
@@ -979,7 +972,25 @@ class MainWindow(QMainWindow):
         self._task_error(message)
 
     def open_latest_result(self) -> None:
-        self.switch_page(self._latest_result_page)
+        self.open_plan_history()
+
+    def open_plan_history(self) -> None:
+        self._reload_plan_history()
+        self.switch_page(4)
+
+    def _reload_plan_history(self) -> None:
+        if hasattr(self, "plan_history_page"):
+            self.plan_history_page.populate(self.plan_history_store.summaries())
+
+    def open_selected_plan(self) -> None:
+        record_id = self.plan_history_page.selected_record_id()
+        record = self.plan_history_store.get(record_id)
+        if record is None:
+            QMessageBox.warning(self, "计划无法读取", "该历史计划不存在或本地记录已损坏。")
+            self._reload_plan_history()
+            return
+        self._show_plan_preview(record)
+        self.switch_page(2)
 
     def _home_error(self, message: str) -> None:
         self.agent_busy = False
@@ -1164,7 +1175,7 @@ class MainWindow(QMainWindow):
         self.current_preview = None
         self.workspace_plan_button.setEnabled(False)
         self.plan_download_button.setEnabled(False)
-        self.plan_table.setRowCount(0)
+        self.plan_tree.clear()
         self.plan_summary.setText("尚未生成下载计划。")
         self.directory_tree.clear()
         self._fill_table([])
@@ -1380,22 +1391,45 @@ class MainWindow(QMainWindow):
             return build_preview(plan, all_items)
 
         self.assistant_steps.setText("✓ 理解请求    ● 扫描目录    ○ 生成计划    ○ 等待确认")
-        self._run_task("AI 正在生成并验证下载计划…", work, self._plan_ready, self._plan_progress)
+        self._run_task(
+            "AI 正在生成并验证下载计划…",
+            work,
+            lambda preview: self._plan_ready(preview, request=request),
+            self._plan_progress,
+        )
 
     def _plan_progress(self, payload: object) -> None:
         if isinstance(payload, dict):
             self.statusBar().showMessage(f"扫描 {payload.get('path')} · 已发现 {payload.get('count')} 项")
 
-    def _plan_ready(self, preview: PlanPreview) -> None:
+    def _plan_ready(self, preview: PlanPreview, request: str = "", *, record_history: bool = True) -> None:
         plan = replace(preview.plan, destination=preview.plan.destination or self.config.download_root)
         preview = replace(preview, plan=plan)
+        record = PlanHistoryRecord(
+            summary=self._temporary_plan_summary(request, preview),
+            preview=preview,
+        )
+        if record_history:
+            try:
+                record = self.plan_history_store.save(request, preview)
+                self._reload_plan_history()
+            except (OSError, sqlite3.Error, ValueError) as exc:
+                self._log(f"计划历史保存失败：{exc}")
+        self._show_plan_preview(record)
+        self.assistant_steps.setText("✓ 理解请求    ✓ 扫描目录    ✓ 生成计划    ● 等待确认")
+        self.statusBar().showMessage("下载计划已生成，可在计划列表中随时查看")
+        self._log(f"计划生成：选择 {len(preview.selected)} 个文件，排除 {preview.excluded_count} 项")
+
+    def _show_plan_preview(self, record: PlanHistoryRecord) -> None:
+        preview = record.preview
+        plan = preview.plan
         self.current_plan = plan
         self.current_preview = preview
         self.destination_edit.setText(plan.destination)
         self.current_items = preview.selected
         self._fill_table(preview.selected, "AI 选择")
         self._set_all_checked(True)
-        self._fill_plan_table(preview.selected)
+        self._fill_plan_tree(preview.selected)
         self.plan_download_button.setEnabled(bool(preview.selected))
         excluded = "、".join(f"{name} {count}" for name, count in preview.excluded_reasons.items()) or "无"
         source_lines = [f"• {path}" for path in plan.source_paths[:6]]
@@ -1405,6 +1439,8 @@ class MainWindow(QMainWindow):
         includes = "、".join([*plan.include_keywords, *plan.include_extensions]) or "全部文件"
         excludes = "、".join([*plan.exclude_keywords, *plan.exclude_extensions]) or "无"
         self.plan_summary.setText(
+            f"需求：{record.summary.request}\n"
+            f"生成时间：{_format_plan_timestamp(record.summary.created_at)}\n\n"
             f"来源路径\n{sources}\n\n"
             f"候选：{len(preview.selected)} 个文件 · {format_size(preview.total_bytes)}    "
             f"包含：{includes}    排除条件：{excludes}\n"
@@ -1412,13 +1448,19 @@ class MainWindow(QMainWindow):
             f"整理：{organize_label(plan.organize_by)}\n"
             f"说明：{plan.reasoning or '已按结构化规则生成候选。'}"
         )
-        self.open_result_button.setText("查看下载计划")
-        self.open_result_button.setEnabled(True)
         self.workspace_plan_button.setEnabled(True)
-        self._latest_result_page = 2
-        self.assistant_steps.setText("✓ 理解请求    ✓ 扫描目录    ✓ 生成计划    ● 等待确认")
-        self.statusBar().showMessage("下载计划已生成，请检查后再下载")
-        self._log(f"计划生成：选择 {len(preview.selected)} 个文件，排除 {preview.excluded_count} 项")
+
+    @staticmethod
+    def _temporary_plan_summary(request: str, preview: PlanPreview) -> PlanHistorySummary:
+        return PlanHistorySummary(
+            record_id="",
+            created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            request=request.strip() or preview.plan.reasoning or "下载计划",
+            source_paths=list(preview.plan.source_paths),
+            file_count=len(preview.selected),
+            total_bytes=preview.total_bytes,
+            destination=preview.plan.destination,
+        )
 
     def check_llm(self) -> None:
         def work(_: Any) -> str:
@@ -1509,47 +1551,17 @@ class MainWindow(QMainWindow):
         if selected:
             self.destination_edit.setText(selected)
 
-    def _fill_plan_table(self, items: list[RemoteItem]) -> None:
-        self.plan_table.blockSignals(True)
-        self.plan_table.setRowCount(len(items))
-        for row, remote in enumerate(items):
-            check = QTableWidgetItem()
-            check.setFlags(check.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            check.setCheckState(Qt.CheckState.Checked)
-            name = QTableWidgetItem(remote.name)
-            name.setData(Qt.ItemDataRole.UserRole, remote)
-            name.setIcon(self._icon(QStyle.StandardPixmap.SP_FileIcon))
-            kind = QTableWidgetItem(Path(remote.name).suffix.lower() or "文件")
-            size = QTableWidgetItem(format_size(remote.size))
-            path = QTableWidgetItem(remote.path)
-            path.setFont(QFont("Cascadia Mono", 9))
-            for column, cell in enumerate((check, name, kind, size, path)):
-                self.plan_table.setItem(row, column, cell)
-        self.plan_table.blockSignals(False)
-        self._update_plan_selection_summary()
+    def _fill_plan_tree(self, items: list[RemoteItem]) -> None:
+        self.plan_tree.set_items(items)
 
     def _checked_plan_items(self) -> list[RemoteItem]:
-        selected: list[RemoteItem] = []
-        for row in range(self.plan_table.rowCount()):
-            check = self.plan_table.item(row, 0)
-            remote = self.plan_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-            if check.checkState() == Qt.CheckState.Checked and isinstance(remote, RemoteItem):
-                selected.append(remote)
-        return selected
+        return self.plan_tree.checked_items()
 
     def _set_plan_checks(self, checked: bool) -> None:
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        for row in range(self.plan_table.rowCount()):
-            self.plan_table.item(row, 0).setCheckState(state)
-        self._update_plan_selection_summary()
+        self.plan_tree.set_all_checked(checked)
 
     def _invert_plan_checks(self) -> None:
-        for row in range(self.plan_table.rowCount()):
-            check = self.plan_table.item(row, 0)
-            check.setCheckState(
-                Qt.CheckState.Unchecked if check.checkState() == Qt.CheckState.Checked else Qt.CheckState.Checked
-            )
-        self._update_plan_selection_summary()
+        self.plan_tree.invert_checks()
 
     def _update_plan_selection_summary(self) -> None:
         selected = self._checked_plan_items()
@@ -1618,9 +1630,7 @@ class MainWindow(QMainWindow):
         excluded = "无"
         if self.current_preview and self.current_preview.excluded_reasons:
             excluded = "、".join(f"{name} {count}" for name, count in self.current_preview.excluded_reasons.items())
-        preview_names = "\n".join(f"• {item.name}" for item in files[:8])
-        if len(files) > 8:
-            preview_names += f"\n• 另有 {len(files) - 8} 个文件"
+        preview_names = download_preview_tree(files, selected_roots)
         folder_count = sum(item.is_dir for item in selected_roots)
         root_summary = f"（由 {folder_count} 个文件夹递归展开）" if folder_count else ""
         answer = QMessageBox.question(
@@ -1631,7 +1641,7 @@ class MainWindow(QMainWindow):
             f"文件：{len(files)} 个{root_summary}，共 {format_size(total_bytes)}\n"
             f"整理：{organize_label(plan.organize_by)}\n"
             f"排除：{excluded}\n\n"
-            f"候选文件：\n{preview_names}\n\n确认后才会开始下载。",
+            f"下载内容预览：\n{preview_names}\n\n确认后才会开始下载。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1643,6 +1653,7 @@ class MainWindow(QMainWindow):
     def _start_download(self, items: list[RemoteItem], plan: SelectionPlan) -> None:
         self.download_control = DownloadControl()
         self.download_running = True
+        self.task_bar.setVisible(True)
         self.download_paused = False
         self.pause_button.setText("暂停")
         self.pause_button.setEnabled(True)
@@ -1774,6 +1785,13 @@ def format_size(size: int) -> str:
             return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
         value /= 1024
     return f"{size} B"
+
+
+def _format_plan_timestamp(value: str) -> str:
+    try:
+        return datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value
 
 
 def format_time(timestamp: int) -> str:

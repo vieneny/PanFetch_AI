@@ -78,9 +78,14 @@ Netdisk workspace
 | Download progress, pause/resume/cancel, and runtime log            |
 +--------------------------------------------------------------------+
 
-Download or operation plan
+Download plan library                 Download plan detail
++-------------------------------+     +------------------------------------+
+| Time / request / source / size| --> | folder tree / rules / destination  |
++-------------------------------+     +------------------------------------+
+
+Operation plan
 +--------------------------------------------------------------------+
-| Sources, rules, complete candidates, destination, risk, confirmation|
+| Sources, target, backend, risk, and explicit confirmation           |
 +--------------------------------------------------------------------+
 ```
 
@@ -110,7 +115,9 @@ The internal workflow is `route -> tool -> answer`. Agent execution and AI plans
 
 The Agent returns one JSON action from this allowlist. Paths, names, URLs, lengths, depth, and result counts are validated. Cloud-write tools produce an `OperationPlan`; they do not execute during model inference. The current `inspect` tool uses metadata and directory structure and does not silently download and parse document bodies.
 
-Conversation history is local-only at `.panfetch-ai/assistant_history.jsonl`. Streaming bytes are explicitly decoded as UTF-8. On startup, a conservative atomic repair handles old UTF-8-as-Latin-1 history corruption without changing valid Chinese or English text.
+Conversation history is local-only at `.panfetch-ai/assistant_history.jsonl`. Newly generated download plans are stored in `.panfetch-ai/download_plans.db` with their request, rules, and candidate paths. Both are ignored by Git. The plan library reads lightweight summaries first and restores the complete preview only after a plan is opened. Candidate files are grouped into a checkable folder tree; folders are collapsed by default and only checked leaf files reach the downloader.
+
+Streaming bytes are explicitly decoded as UTF-8. On startup, a conservative atomic repair handles old UTF-8-as-Latin-1 history corruption without changing valid Chinese or English text.
 
 LangSmith is optional:
 
@@ -253,6 +260,8 @@ panfetch_ai/
     agent.py              Agent intent and allowlisted tools
     assistant_workflow.py LangGraph state, LangChain nodes, LangSmith tracing
     history.py            local JSONL conversations and tool logs
+    plan_history.py       SQLite plan summaries and complete preview recovery
+    plan_preview.py       folder-first final download summaries
     models.py             remote item and download-plan models
     planner.py            LLM protocol adapter and local parsing
     rules.py              deterministic filtering and preview generation
@@ -261,6 +270,8 @@ panfetch_ai/
     downloader.py         concurrency, retries, validation, and atomic writes
   ui/
     assistant_page.py     focused AI Q&A and collapsed run details
+    download_plan_tree.py checkable folder tree and parent-child state
+    plan_history_page.py  historical download plan list
     main_window.py        workspace, download plan, and operation controller
     settings_dialog.py    Baidu, download, and LLM settings
     workers.py            Qt thread-pool task wrappers
@@ -280,7 +291,7 @@ These paths are ignored by Git:
 |---|---|
 | `.secrets/` | DPAPI-encrypted Baidu Token and LLM API key |
 | `local_settings.json` | Download root, concurrency, and non-secret LLM settings |
-| `.panfetch-ai/` | SQLite catalog and AI conversation history |
+| `.panfetch-ai/` | SQLite catalog, download plan history, and AI conversations |
 | `downloads/` | Default download destination |
 | `exports/` | Exported inventories |
 | `logs/` | Redacted runtime logs |

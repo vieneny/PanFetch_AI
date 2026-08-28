@@ -19,6 +19,9 @@ OUTPUT = Path(os.getenv("PANFETCH_UI_OUTPUT", Path(__file__).resolve().parents[1
 def main() -> int:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     os.environ["PANFETCH_SKIP_AUTOCONNECT"] = "1"
+    render_history = OUTPUT / "render-download-plans.db"
+    render_history.unlink(missing_ok=True)
+    os.environ["PANFETCH_PLAN_HISTORY_DB"] = str(render_history)
     app = create_application([])
     window = MainWindow()
     window.load_directory = lambda *_: None
@@ -48,7 +51,20 @@ def main() -> int:
         organize_by="source",
         reasoning="保留讲义和示例代码，排除视频与安装包。",
     )
-    window._plan_ready(PlanPreview(plan, sample_items[1:], 5, {"目录": 1, "命中排除扩展名": 4}))
+    window._plan_ready(
+        PlanPreview(plan, sample_items[1:], 5, {"目录": 1, "命中排除扩展名": 4}),
+        request="下载课程讲义和示例代码",
+    )
+    archive_plan = SelectionPlan(
+        source_paths=["/示例课程/基础模块"],
+        include_extensions=[".pdf"],
+        destination=window.config.download_root,
+        reasoning="只保留基础模块讲义。",
+    )
+    window._plan_ready(
+        PlanPreview(archive_plan, [sample_items[1]], 2, {"命中排除扩展名": 2}),
+        request="整理基础模块 PDF 讲义",
+    )
     window.home_conversation.clear()
     window.home_conversation.append_message("user", "帮我找到 Java 集合相关资料，并告诉我在哪。")
     window.home_conversation.append_message(
@@ -58,7 +74,6 @@ def main() -> int:
     window.home_thinking.setPlainText("正在判断资料范围…\n正在归纳目录名、文件格式和路径样例…")
     window.home_stage.setText("完成 · search")
     window.home_trace.setPlainText("作用域：/\n路由：search\n工具完成：search，返回 12 项")
-    window.open_result_button.setEnabled(True)
     window.history_list.clear()
     window.history_list.addItem(QListWidgetItem("查找 Java 集合资料\n2 轮"))
     window.history_list.addItem(QListWidgetItem("下载课程讲义\n1 轮"))
@@ -82,8 +97,23 @@ def main() -> int:
         window.switch_page(1)
         window.grab().save(str(OUTPUT / "panfetch-ai-workspace.png"))
         window.grab().save(str(OUTPUT / "panfetch-ai-quick.png"))
-        window.switch_page(2)
+        window.open_plan_history()
+        window.grab().save(str(OUTPUT / "panfetch-ai-plans.png"))
+        window.resize(1120, 720)
+        QTimer.singleShot(250, capture_narrow_plans)
+
+    def capture_narrow_plans() -> None:
+        window.grab().save(str(OUTPUT / "panfetch-ai-plans-narrow.png"))
+        window.resize(1480, 900)
+        window.plan_history_page.table.selectRow(1)
+        window.open_selected_plan()
         window.grab().save(str(OUTPUT / "panfetch-ai-plan.png"))
+        window.resize(1120, 720)
+        QTimer.singleShot(250, capture_narrow_plan)
+
+    def capture_narrow_plan() -> None:
+        window.grab().save(str(OUTPUT / "panfetch-ai-plan-narrow.png"))
+        window.resize(1480, 900)
         window._show_operation_plan(
             build_operation_plan(
                 "move",

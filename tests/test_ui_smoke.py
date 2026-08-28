@@ -17,12 +17,13 @@ def test_main_window_constructs(qtbot, monkeypatch, tmp_path) -> None:
     assert window.windowTitle() == "PanFetch AI"
     assert window.file_table.columnCount() == 7
     assert window.prompt_edit.placeholderText()
-    assert window.page_stack.count() == 4
+    assert window.page_stack.count() == 5
     assert window.operation_confirm.isEnabled() is False
     assert window.home_stop_button.isEnabled() is False
     assert "Enter 发送" in window.home_input.placeholderText()
     assert window.page_stack.currentWidget() is window.home_page
     assert window.page_stack.widget(2) is window.plan_page
+    assert window.page_stack.widget(4) is window.plan_history_page
     assert window.home_nav.property("active") is True
     assert window.home_nav.text() == "AI 问答"
     assert window.home_page.findChild(QLabel, "homeTitle").text() == "AI 问答"
@@ -32,7 +33,7 @@ def test_main_window_constructs(qtbot, monkeypatch, tmp_path) -> None:
     assert window.scope_combo.currentData() == "global"
     assert window.scope_path.text() == "/"
     assert window.history_list is not None
-    assert window.plan_table.columnCount() == 5
+    assert window.plan_tree.columnCount() == 4
     assert window.workspace_plan_button.isEnabled() is False
     assert window.plan_download_button.isEnabled() is False
     toolbar = window.findChild(QToolBar)
@@ -138,6 +139,7 @@ def test_interrupt_restores_chat_controls_immediately(qtbot, monkeypatch, tmp_pa
 def test_plan_opens_on_dedicated_page(qtbot, monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("panfetch_ai.ui.main_window.QTimer.singleShot", lambda *_: None)
     monkeypatch.setattr("panfetch_ai.core.catalog.DEFAULT_DB", tmp_path / "catalog.db")
+    monkeypatch.setenv("PANFETCH_PLAN_HISTORY_DB", str(tmp_path / "download_plans.db"))
     window = MainWindow()
     qtbot.addWidget(window)
     item = RemoteItem(7, "/课程/讲义.pdf", "讲义.pdf", False, size=1024)
@@ -149,13 +151,43 @@ def test_plan_opens_on_dedicated_page(qtbot, monkeypatch, tmp_path) -> None:
         reasoning="只选择讲义",
     )
     window._plan_ready(PlanPreview(plan, [item], 2, {"命中排除扩展名": 2}))
-    assert window.plan_table.rowCount() == 1
+    assert window.plan_tree.topLevelItemCount() == 1
+    assert window.plan_tree.topLevelItem(0).text(0) == "课程"
+    assert window.plan_tree.topLevelItem(0).isExpanded() is False
     assert window.plan_download_button.isEnabled() is True
     assert window.workspace_plan_button.isEnabled() is True
-    assert window.open_result_button.text() == "查看下载计划"
+    assert window.open_result_button.text() == "查看计划"
     window.open_latest_result()
+    assert window.page_stack.currentWidget() is window.plan_history_page
+    assert window.plan_history_page.table.rowCount() == 1
+    assert window.plan_history_page.table.currentRow() == 0
+    assert window.plan_history_page.open_button.isEnabled() is True
+    window.open_selected_plan()
     assert window.page_stack.currentWidget() is window.plan_page
     assert "/课程" in window.plan_summary.text()
+
+
+def test_plan_tree_groups_files_by_folder_and_parent_check_controls_children(qtbot, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("panfetch_ai.ui.main_window.QTimer.singleShot", lambda *_: None)
+    monkeypatch.setenv("PANFETCH_PLAN_HISTORY_DB", str(tmp_path / "download_plans.db"))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    items = [
+        RemoteItem(1, "/课程/模块一/讲义.pdf", "讲义.pdf", False, size=100),
+        RemoteItem(2, "/课程/模块一/代码.zip", "代码.zip", False, size=200),
+        RemoteItem(3, "/课程/说明.txt", "说明.txt", False, size=30),
+    ]
+    window._plan_ready(PlanPreview(SelectionPlan(source_paths=["/课程"], destination=str(tmp_path)), items, 0, {}))
+
+    course = window.plan_tree.topLevelItem(0)
+    assert course.text(0) == "课程"
+    assert course.text(2) == "3 个文件 · 330 B"
+    assert course.childCount() == 2
+    assert len(window._checked_plan_items()) == 3
+
+    course.setCheckState(0, Qt.CheckState.Unchecked)
+    assert window._checked_plan_items() == []
+    assert window.plan_download_button.isEnabled() is False
 
 
 def test_share_plan_displays_official_mcp_backend(qtbot, monkeypatch, tmp_path) -> None:

@@ -20,6 +20,7 @@ QLabel#brandLabel { color: #F7FAFC; font-size: 18px; font-weight: 700; }
 QLabel[sectionTitle="true"] { color: #F3F7FA; font-size: 15px; font-weight: 700; }
 QLabel[panelTitle="true"] { color: #F7FAFC; font-size: 17px; font-weight: 700; }
 QWidget#homePage { background: #10151C; }
+QWidget#planHistoryPage { background: #10151C; }
 QWidget#planPage { background: #10151C; }
 QWidget#operationPage { background: #10151C; }
 QFrame#historyRail {
@@ -40,6 +41,7 @@ QFrame#assistantDetails {
     border-radius: 5px;
 }
 QLabel#homeTitle { color: #F7FAFC; font-size: 21px; font-weight: 700; }
+QLabel#planHistoryTitle { color: #F7FAFC; font-size: 21px; font-weight: 700; }
 QLabel#planTitle { color: #F7FAFC; font-size: 24px; font-weight: 700; }
 QLabel#operationTitle { color: #F7FAFC; font-size: 24px; font-weight: 700; }
 QLabel#operationBackend {
@@ -83,6 +85,7 @@ QPushButton[primary="true"] {
     font-weight: 600;
 }
 QPushButton[primary="true"]:hover { background: #2A91B8; border-color: #49CAD8; }
+QPushButton[primary="true"]:disabled { background: #171E27; border-color: #27333E; color: #647382; }
 QPushButton[danger="true"] { color: #F0A09B; border-color: #704148; background: #211B21; }
 QPushButton[nav="true"] {
     min-width: 86px;
@@ -127,6 +130,15 @@ QHeaderView::section {
 }
 QTreeWidget::item, QTableWidget::item { min-height: 30px; }
 QTreeWidget::item:selected, QTableWidget::item:selected { background: #1D5165; color: #FFFFFF; }
+QTreeWidget#planTree::item { min-height: 34px; }
+QTableWidget#planHistoryTable::item { min-height: 38px; }
+QLabel#planHistoryEmpty {
+    border: 1px dashed #344554;
+    border-radius: 5px;
+    background: #121920;
+    color: #8392A0;
+    font-size: 14px;
+}
 QListWidget::item {
     min-height: 42px;
     padding: 7px 8px;

@@ -149,7 +149,7 @@ class AssistantPage(QWidget):
         heading.addWidget(title)
         heading.addStretch(1)
         self.open_result_button = QPushButton("查看结果")
-        self.open_result_button.setEnabled(False)
+        self.open_result_button.setText("查看计划")
         heading.addWidget(self.open_result_button)
         chat_layout.addLayout(heading)
 

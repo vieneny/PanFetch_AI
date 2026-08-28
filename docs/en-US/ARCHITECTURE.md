@@ -8,13 +8,15 @@ PanFetch AI separates conversational orchestration, controlled netdisk tools, an
 PySide6 UI
   |-- AssistantPage: focused Q&A, scope, history, collapsible run details
   |-- Workspace: account, directory browser, file/folder selection, quick commands
-  |-- Download plan: rules, full candidate table, destination, confirmation
+  |-- Plan library: SQLite history summaries and plan selection
+  |-- Download plan: rules, folder-first candidate tree, destination, confirmation
   |-- Operation plan: target, backend, risk, confirmation, result
   |-- download queue and progress
   |
 Application services
   |-- ConfigStore       DPAPI credentials and non-secret settings
   |-- ConversationStore local JSONL turns and tool logs
+  |-- PlanHistoryStore  local SQLite summaries and complete preview recovery
   |-- BaiduNetdiskClient directory, search, metadata, upload, file manager
   |-- BaiduMcpClient    official hosted MCP adapter for full-disk sharing
   |-- BdpanBackend      optional native/WSL transfer and share-download adapter
@@ -73,11 +75,12 @@ SSE is consumed as raw bytes and decoded explicitly as UTF-8, avoiding `requests
 
 ## Download lifecycle
 
-1. Scan source paths and build a preview.
-2. Expand any manually selected folders recursively in a background worker and deduplicate files.
-3. Open the dedicated plan page and inspect rules plus the complete candidate table.
-4. Select a local destination and confirm file count, byte size, and organization mode.
-5. Query at most ten file IDs per Baidu metadata request.
-6. Download with 1-10 workers and up to three attempts per file.
-7. Stream to `.part-*`, calculate SHA-256, and verify expected size.
-8. Atomically move the completed file and write `PanFetch AI下载清单.json`.
+1. Scan source paths and build a preview, then persist its summary and complete candidate payload locally.
+2. Open the plan library and select one historical plan.
+3. Restore the plan detail as a collapsed, checkable folder tree; only checked leaf files become download inputs.
+4. Expand any manually selected workspace folders recursively in a background worker and deduplicate files.
+5. Select a local destination and confirm the folder-first content summary, file count, byte size, and organization mode.
+6. Query at most ten file IDs per Baidu metadata request.
+7. Download with 1-10 workers and up to three attempts per file.
+8. Stream to `.part-*`, calculate SHA-256, and verify expected size.
+9. Atomically move the completed file and write `PanFetch AI下载清单.json`.
