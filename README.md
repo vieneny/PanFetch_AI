@@ -10,7 +10,7 @@ PanFetch AI 是一个面向 Windows 的开源 AI 百度网盘管理、下载与�
 
 - 自动读取已鉴权账号的昵称、UID、头像、会员类型和网盘容量，并显示在网盘工作台。
 - AI 问答页面提供上下文对话，可按全局网盘、当前目录或指定路径提问，并流式区分思考、工具轨迹和最终回答；运行中可随时中断。
-- 本地保存会话历史、请求、回答和执行日志，可随时回看并继续追问。
+- 本地保存会话历史、请求、回答和执行日志，可随时回看、继续追问或删除指定会话。
 - 使用 LangChain + LangGraph 编排受控工具，通过可选 LangSmith tracing 观测每次运行。
 - 浏览目录、按路径跳转、递归查看目录树、按关键词或文件类型搜索、章节识别和 CSV 导出。
 - 上传本地文件或文件夹，支持 4 MiB 分片和后台进度反馈。
@@ -101,7 +101,7 @@ AI 问答页面
 
 AI 问答是程序默认页面。未选择路径时作用域为整个网盘，也可切换为工作台当前目录或手动指定绝对路径。每个会话会带上最近上下文；用户提问使用青蓝色带突出显示，AI 回复使用独立的绿色身份标签和中性正文色。模型流式返回时，思考摘要进入独立区域，最终回答逐字进入对话，路径、路由、工具调用和扫描过程进入运行轨迹。
 
-对话输入框使用 `Enter` 发送，`Shift+Enter` 换行。发送后“中断”按钮启用；中断会立即停止界面接收旧请求的事件、关闭活动流式响应，并把本次状态记录为已中断，随后可以直接发起新问题。
+对话输入框使用 `Enter` 发送，`Shift+Enter` 换行。发送后“中断”按钮启用；中断会立即停止界面接收旧请求的事件、关闭活动流式响应，并把本次状态记录为已中断，随后可以直接发起新问题。选中左侧历史会话后可用垃圾桶按钮删除；确认后只会原子移除该会话的全部轮次，不影响其他会话。
 
 内部使用 LangGraph 的 `route -> tool -> answer` 状态图。LangChain `RunnableLambda` 包装每个节点，Agent 负责受控工具路由，AI 下载计划是 `prepare_download` 的结构化结果，两者属于同一条编排链路。下载请求只生成候选，仍会停在人工确认步骤。当前工具白名单包括：
 
@@ -195,7 +195,7 @@ Windows 日常使用可双击 `启动PanFetch AI.vbs`。它直接调用 `pythonw
 
 ## 百度网盘授权
 
-打开“设置”，在“百度网盘”页点击“打开百度授权页”。完成登录授权后，将成功页中的 Access Token 粘贴到设置中并保存。Token 会被当前 Windows 用户的 DPAPI 加密并写入 `.secrets/baidu-token.dpapi`，密文只能由同一 Windows 用户在本机解密。账号卡片可随时重新授权或退出；退出只删除本机授权，不修改任何网盘文件。
+打开“设置”，在“百度网盘”页点击“打开百度授权页”。授权地址会强制重新登录，便于选择其他百度账号。完成登录授权后，将成功页中的 Access Token 粘贴到设置中并保存。Token 会被当前 Windows 用户的 DPAPI 加密并写入 `.secrets/baidu-token.dpapi`，密文只能由同一 Windows 用户在本机解密。账号卡片可随时重新授权或退出；退出只删除本机授权，不修改任何网盘文件。
 
 默认 OAuth Client ID 来自百度官方 MCP 项目的个人用户限时体验配置，可能由百度不定期调整；正式开源部署应在设置中填写自己在百度网盘开放平台创建应用后获得的 Client ID。
 
@@ -336,7 +336,7 @@ uv run python -m panfetch_ai
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 ```
 
-构建配置位于 `panfetch-ai.spec`，设置 `console=False`，输出 `dist\PanFetch AI.exe`。EXE 可直接双击启动且不会创建控制台窗口。开发仓库中的 `dist` 构建会复用仓库根目录的本地配置；单独分发 EXE 时，配置和加密凭据保存在 EXE 同级目录。发布时不要打包 `.secrets/`、`local_settings.json`、日志或任何已下载文件。
+构建配置位于 `panfetch-ai.spec`，设置 `console=False`，输出无需安装 Python 的单文件 `dist\PanFetch AI.exe`。脚本还会生成 `dist\PanFetch-AI-Windows-x64.zip`，其中只包含 EXE、中英文说明和许可证，可直接分发给 Windows 10/11 x64 用户。首次运行由接收者配置自己的百度 OAuth 和可选 LLM；发布包不会包含 `.secrets/`、`local_settings.json`、`.panfetch-ai/`、日志或任何已下载文件。当前构建未配置代码签名，Windows SmartScreen 可能显示“未知发布者”；正式公开发行建议使用受信任证书签名。
 
 ## 参与贡献
 

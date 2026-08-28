@@ -98,6 +98,32 @@ class ConversationStore:
             entry["count"] = int(entry["count"]) + 1
         return sorted(grouped.values(), key=lambda item: str(item["updated"]), reverse=True)
 
+    def delete_session(self, session_id: str) -> int:
+        normalized = session_id.strip()
+        if not normalized or not self.path.is_file():
+            return 0
+        retained: list[str] = []
+        removed = 0
+        for line in self.path.read_text(encoding="utf-8").splitlines(keepends=True):
+            try:
+                payload = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                retained.append(line)
+                continue
+            if isinstance(payload, dict) and str(payload.get("session_id") or "") == normalized:
+                removed += 1
+            else:
+                retained.append(line)
+        if not removed:
+            return 0
+        temporary = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex[:10]}.tmp")
+        try:
+            temporary.write_text("".join(retained), encoding="utf-8", newline="")
+            temporary.replace(self.path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return removed
+
     def repair_encoding(self) -> int:
         if not self.path.is_file():
             return 0

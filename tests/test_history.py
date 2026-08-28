@@ -28,6 +28,21 @@ def test_conversation_history_ignores_malformed_lines(tmp_path) -> None:
     assert turns[0].session_id == "ok"
 
 
+def test_conversation_history_deletes_only_selected_session_atomically(tmp_path) -> None:
+    path = tmp_path / "history.jsonl"
+    store = ConversationStore(path)
+    first = store.new_session_id()
+    second = store.new_session_id()
+    store.append(first, "第一轮", "回答一", "global", "/", "help", [])
+    store.append(first, "第二轮", "回答二", "global", "/", "help", [])
+    store.append(second, "保留会话", "保留回答", "global", "/", "help", [])
+
+    assert store.delete_session(first) == 2
+    assert store.turns(first) == []
+    assert [turn.request for turn in store.turns(second)] == ["保留会话"]
+    assert store.delete_session(first) == 0
+
+
 def test_history_repairs_existing_utf8_mojibake(tmp_path) -> None:
     path = tmp_path / "history.jsonl"
     path.write_text(

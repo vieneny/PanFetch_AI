@@ -211,7 +211,9 @@ class MainWindow(QMainWindow):
     def _build_home_page(self) -> QWidget:
         page = AssistantPage()
         page.new_chat_button.clicked.connect(self.new_conversation)
+        page.delete_chat_button.clicked.connect(self.delete_conversation)
         page.history_list.itemClicked.connect(self.load_conversation)
+        page.history_list.itemSelectionChanged.connect(self._update_delete_conversation_button)
         page.open_result_button.clicked.connect(self.open_plan_history)
         page.scope_combo.currentIndexChanged.connect(self._scope_changed)
         page.use_current_button.clicked.connect(self._use_current_scope)
@@ -221,6 +223,7 @@ class MainWindow(QMainWindow):
         page.stop_button.setIcon(self._icon(QStyle.StandardPixmap.SP_MediaStop))
         page.stop_button.clicked.connect(self.interrupt_home_request)
         self.history_list = page.history_list
+        self.delete_chat_button = page.delete_chat_button
         self.open_result_button = page.open_result_button
         self.scope_combo = page.scope_combo
         self.scope_path = page.scope_path
@@ -667,6 +670,39 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f"{session['title']}\n{session['count']} 轮")
             item.setData(Qt.ItemDataRole.UserRole, session["session_id"])
             self.history_list.addItem(item)
+        self._update_delete_conversation_button()
+
+    def _update_delete_conversation_button(self) -> None:
+        selected = self.history_list.currentItem() is not None
+        self.delete_chat_button.setEnabled(selected and not self.agent_busy)
+
+    def delete_conversation(self) -> None:
+        item = self.history_list.currentItem()
+        if self.agent_busy or item is None:
+            return
+        session_id = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if not session_id:
+            return
+        title = item.text().splitlines()[0] or "未命名会话"
+        turns = len(self.conversation_store.turns(session_id))
+        answer = QMessageBox.question(
+            self,
+            "删除 AI 对话",
+            f"确定删除“{title}”及其 {turns} 轮对话吗？\n删除后无法恢复。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        removed = self.conversation_store.delete_session(session_id)
+        if not removed:
+            QMessageBox.warning(self, "删除失败", "该会话不存在或本地历史记录无法读取。")
+            self._reload_conversation_list()
+            return
+        if self.session_id == session_id:
+            self.new_conversation()
+        self._reload_conversation_list()
+        self.statusBar().showMessage(f"已删除 AI 对话：{title}")
 
     def load_conversation(self, item: QListWidgetItem) -> None:
         if self.agent_busy:
@@ -730,6 +766,7 @@ class MainWindow(QMainWindow):
         self._home_logs = []
         self._home_answer_started = False
         self.agent_busy = True
+        self._update_delete_conversation_button()
         self.home_send_button.setEnabled(False)
         self.home_stop_button.setEnabled(True)
         self.home_stage.setText("正在启动编排…")

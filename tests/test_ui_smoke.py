@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QToolBar
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QToolBar
 
 from panfetch_ai.core.models import OperationPlan, OperationResult, PlanPreview, RemoteItem, SelectionPlan
 from panfetch_ai.ui.assistant_page import AssistantPage, ConversationView
@@ -35,6 +35,8 @@ def test_main_window_constructs(qtbot, monkeypatch, tmp_path) -> None:
     assert window.scope_combo.currentData() == "global"
     assert window.scope_path.text() == "/"
     assert window.history_list is not None
+    assert window.delete_chat_button.isEnabled() is False
+    assert window.delete_chat_button.icon().isNull() is False
     assert window.plan_tree.columnCount() == 4
     assert window.workspace_plan_button.isEnabled() is False
     assert window.plan_download_button.isEnabled() is False
@@ -136,6 +138,34 @@ def test_interrupt_restores_chat_controls_immediately(qtbot, monkeypatch, tmp_pa
     assert window.home_stop_button.isEnabled() is False
     assert window.home_stage.text() == "已中断"
     assert saved and saved[0][5] == "cancelled"
+
+
+def test_selected_ai_conversation_can_be_deleted(qtbot, monkeypatch, tmp_path) -> None:
+    from panfetch_ai.core.history import ConversationStore
+
+    monkeypatch.setattr("panfetch_ai.ui.main_window.QTimer.singleShot", lambda *_: None)
+    monkeypatch.setattr("panfetch_ai.core.catalog.DEFAULT_DB", tmp_path / "catalog.db")
+    window = MainWindow()
+    qtbot.addWidget(window)
+    store = ConversationStore(tmp_path / "assistant_history.jsonl")
+    session_id = store.new_session_id()
+    store.append(session_id, "需要删除的会话", "示例回答", "global", "/", "help", [])
+    window.conversation_store = store
+    window._reload_conversation_list()
+    window.history_list.setCurrentRow(0)
+    window.load_conversation(window.history_list.currentItem())
+    monkeypatch.setattr(
+        "panfetch_ai.ui.main_window.QMessageBox.question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    assert window.delete_chat_button.isEnabled() is True
+    window.delete_chat_button.click()
+
+    assert store.sessions() == []
+    assert window.history_list.count() == 0
+    assert window.home_conversation.toPlainText() == ""
+    assert window.delete_chat_button.isEnabled() is False
 
 
 def test_plan_opens_on_dedicated_page(qtbot, monkeypatch, tmp_path) -> None:
@@ -339,3 +369,26 @@ def test_settings_uses_unsaved_llm_values(qtbot, tmp_path) -> None:
     assert config.model == "example-model"
     assert config.api_mode == "chat_completions"
     assert dialog.test_llm_button.text() == "检测连接"
+
+
+def test_baidu_authorization_forces_account_login(qtbot, monkeypatch, tmp_path) -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    from panfetch_ai.core.config import ConfigStore
+
+    store = ConfigStore(tmp_path / "settings.json", tmp_path / "secrets")
+    dialog = SettingsDialog(store)
+    qtbot.addWidget(dialog)
+    dialog.baidu_client_id.setText("example-client-id")
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "panfetch_ai.ui.settings_dialog.QDesktopServices.openUrl",
+        lambda url: opened.append(url.toString()) or True,
+    )
+
+    dialog._open_baidu_authorization()
+
+    assert opened
+    query = parse_qs(urlparse(opened[0]).query)
+    assert query["force_login"] == ["1"]
+    assert query["scope"] == ["basic,netdisk"]

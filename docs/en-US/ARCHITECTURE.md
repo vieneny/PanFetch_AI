@@ -15,7 +15,7 @@ PySide6 UI
   |
 Application services
   |-- ConfigStore       DPAPI credentials and non-secret settings
-  |-- ConversationStore local JSONL turns and tool logs
+  |-- ConversationStore local JSONL turns, tool logs, and atomic session deletion
   |-- PlanHistoryStore  local SQLite summaries and complete preview recovery
   |-- BaiduNetdiskClient directory, search, metadata, upload, file manager
   |-- BaiduMcpClient    official hosted MCP adapter for full-disk sharing
@@ -54,6 +54,8 @@ END      persist request, response, scope, action and logs locally
 Each node is wrapped by LangChain `RunnableLambda` and composed with LangGraph `StateGraph`. The compiled invocation is decorated with LangSmith `traceable`; LangSmith network tracing is inactive unless the standard `LANGSMITH_TRACING` and credential environment variables are configured.
 
 Each assistant run owns a cancellation token and monotonically increasing UI run ID. Interrupting invalidates the run ID immediately, closes the active streaming response, and causes graph and scan checkpoints to raise cancellation. Late events from an older worker are ignored, so a new question can start without waiting for a stale request to time out.
+
+Session deletion is enabled only while the assistant is idle and a history entry is selected. `ConversationStore` removes every turn matching that `session_id` and atomically replaces the JSONL file from a same-directory temporary file, preserving malformed lines and all unrelated sessions.
 
 Scope is explicit state. `/` means global netdisk, while current and custom scopes provide a normalized absolute remote path. Recent conversation turns are passed to both routing and download planning, and candidate paths from the previous result support follow-up requests such as “download the PDFs among those.”
 

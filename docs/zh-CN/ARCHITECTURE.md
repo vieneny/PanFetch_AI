@@ -15,7 +15,7 @@ PySide6 界面
   |
 应用服务
   |-- ConfigStore          DPAPI 凭据和非敏感配置
-  |-- ConversationStore    本地 JSONL 对话与工具日志
+  |-- ConversationStore    本地 JSONL 对话、工具日志与会话级原子删除
   |-- PlanHistoryStore     本地 SQLite 计划摘要与完整候选恢复
   |-- BaiduNetdiskClient   OpenAPI 目录、搜索、上传和文件管理
   |-- BaiduMcpClient       官方托管 MCP 全盘分享
@@ -45,6 +45,8 @@ START
 每个节点由 LangChain `RunnableLambda` 包装，并通过 LangGraph `StateGraph` 编排。LangSmith tracing 默认关闭，只有配置标准环境变量后才会上报 trace。
 
 每次问答拥有独立的取消令牌和单调递增的 UI 运行 ID。中断会关闭活动流、让扫描和网络检查点抛出取消异常，并忽略旧任务的迟到事件，因此无需等待旧请求超时即可重新提问。
+
+删除历史会话时，界面在 AI 空闲且选中会话后才启用删除按钮。`ConversationStore` 按 `session_id` 过滤全部轮次并通过同目录临时文件原子替换 JSONL，损坏行和其他会话原样保留。
 
 ## 信任与确认边界
 

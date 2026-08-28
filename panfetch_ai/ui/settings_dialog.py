@@ -196,6 +196,7 @@ class SettingsDialog(QDialog):
                 "client_id": client_id,
                 "redirect_uri": "oob",
                 "scope": "basic,netdisk",
+                "force_login": "1",
             }
         )
         QDesktopServices.openUrl(QUrl(f"https://openapi.baidu.com/oauth/2.0/authorize?{query}"))

@@ -77,6 +77,7 @@ def main() -> int:
     window.history_list.clear()
     window.history_list.addItem(QListWidgetItem("查找 Java 集合资料\n2 轮"))
     window.history_list.addItem(QListWidgetItem("下载课程讲义\n1 轮"))
+    window.history_list.setCurrentRow(0)
     window.show()
 
     def capture_main() -> None:

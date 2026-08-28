@@ -11,7 +11,7 @@ PanFetch AI is an open-source Windows desktop application for exploring, managin
 - Display the authorized account name, UID, avatar, membership tier, and storage quota.
 - Ask contextual questions against the entire netdisk, the current workspace directory, or a custom remote path.
 - Stream reasoning summaries and final answers, keep conversation context, and interrupt an active AI run immediately.
-- Store local conversation history, requests, responses, and tool logs for later review.
+- Store local conversation history, requests, responses, and tool logs for review, continuation, or explicit per-session deletion.
 - Orchestrate allowlisted tools with LangChain and LangGraph, with optional LangSmith tracing.
 - Browse directories, jump to paths, render bounded directory trees, search by keyword or type, identify chapter folders, and export CSV inventories.
 - Upload local files or directories with 4 MiB multipart uploads and background progress.
@@ -93,7 +93,7 @@ The application opens directly on AI Q&A. The home page intentionally keeps only
 
 ## AI Q&A and Agent tools
 
-When no path is selected, the assistant works against the entire authorized netdisk. The scope can also follow the workspace's current directory or use a normalized custom absolute path. Each conversation includes recent context. Press `Enter` to send and `Shift+Enter` for a new line. **Interrupt** invalidates the current run, closes its streaming response, and allows a new request without waiting for stale events.
+When no path is selected, the assistant works against the entire authorized netdisk. The scope can also follow the workspace's current directory or use a normalized custom absolute path. Each conversation includes recent context. Press `Enter` to send and `Shift+Enter` for a new line. **Interrupt** invalidates the current run, closes its streaming response, and allows a new request without waiting for stale events. Select a history entry and use the trash button to delete that session after confirmation; the atomic rewrite preserves every other session.
 
 The internal workflow is `route -> tool -> answer`. Agent execution and AI plans are part of the same controlled graph: the Agent chooses one allowlisted action, while download and cloud-write requests produce structured plans for review.
 
@@ -179,7 +179,7 @@ On Windows, double-click `启动PanFetch AI.vbs` for a console-free launch. Run 
 
 ## Baidu authorization
 
-Open **Settings > Baidu Netdisk**, then select **Open authorization page**. After login and authorization, paste the Access Token from the success page into Settings and save. The token is encrypted for the current Windows user with DPAPI and written to `.secrets/baidu-token.dpapi`.
+Open **Settings > Baidu Netdisk**, then select **Open authorization page**. The authorization request forces a fresh login so another Baidu account can be selected. After login and authorization, paste the Access Token from the success page into Settings and save. The token is encrypted for the current Windows user with DPAPI and written to `.secrets/baidu-token.dpapi`.
 
 The account card supports reauthorization and sign-out. Signing out removes only the local authorization and does not modify remote files. Production or redistributed builds should use a Client ID created in the Baidu Netdisk Open Platform; any default trial Client ID may change independently.
 
@@ -316,7 +316,7 @@ Tests cover configuration serialization, DPAPI boundaries, response parsing, acc
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 ```
 
-`panfetch-ai.spec` uses `console=False` and produces `dist\PanFetch AI.exe`. Do not distribute `.secrets/`, `local_settings.json`, logs, downloaded content, or any private screenshot with the executable.
+`panfetch-ai.spec` uses `console=False` and produces the standalone one-file `dist\PanFetch AI.exe`; recipients do not need Python. The script also creates `dist\PanFetch-AI-Windows-x64.zip` containing only the EXE, both README files, and the license. Each recipient configures their own Baidu OAuth and optional LLM on first run. The package excludes `.secrets/`, `local_settings.json`, `.panfetch-ai/`, logs, downloads, and screenshots. This build is not code-signed, so Windows SmartScreen may report an unknown publisher; use a trusted signing certificate for a public release.
 
 ## Contributing and license
 
