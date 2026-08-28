@@ -1,0 +1,35 @@
+# Local credentials and user configuration
+.secrets/
+local_settings.json
+.panfetch-ai/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Builds and packaging
+build/
+dist/
+*.spec
+!panfetch-ai.spec
+*.egg-info/
+
+# Downloads, manifests, and exports
+downloads/
+*.part-*
+*.download
+exports/
+logs/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local screenshots generated during UI verification
+artifacts/
