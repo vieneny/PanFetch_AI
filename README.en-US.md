@@ -84,7 +84,7 @@ Download or operation plan
 +--------------------------------------------------------------------+
 ```
 
-The application opens directly on AI Q&A. The home page intentionally keeps only the conversation list, scope, conversation, compact status, composer, and send/interrupt actions visible. Reasoning summaries and tool logs live in the collapsed **Run details** panel. Large download and cloud-operation plans open on dedicated pages instead of accumulating in the conversation view.
+The application opens directly on AI Q&A. The home page intentionally keeps only the conversation list, scope, conversation, compact status, composer, and send/interrupt actions visible. User prompts use a restrained cyan band, while AI responses use a green identity label and neutral body text. Reasoning summaries and tool logs live in the collapsed **Run details** panel. Large download and cloud-operation plans open on dedicated pages instead of accumulating in the conversation view.
 
 ## AI Q&A and Agent tools
 

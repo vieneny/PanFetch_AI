@@ -49,9 +49,11 @@ def main() -> int:
         reasoning="保留讲义和示例代码，排除视频与安装包。",
     )
     window._plan_ready(PlanPreview(plan, sample_items[1:], 5, {"目录": 1, "命中排除扩展名": 4}))
-    window.home_conversation.setPlainText(
-        "你\n帮我找到 Java 集合相关资料，并告诉我在哪。\n\n"
-        "PanFetch AI\n已在课程资料中定位到集合讲义、示例代码和练习文档。候选结果已发送到网盘工作台。"
+    window.home_conversation.clear()
+    window.home_conversation.append_message("user", "帮我找到 Java 集合相关资料，并告诉我在哪。")
+    window.home_conversation.append_message(
+        "assistant",
+        "已在课程资料中定位到集合讲义、示例代码和练习文档。候选结果已发送到网盘工作台。",
     )
     window.home_thinking.setPlainText("正在判断资料范围…\n正在归纳目录名、文件格式和路径样例…")
     window.home_stage.setText("完成 · search")

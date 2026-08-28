@@ -182,7 +182,7 @@ QLabel#assistantSteps {
     font-weight: 600;
 }
 QPlainTextEdit#assistantHistory { background: #121920; border-left: 2px solid #247FA5; }
-QPlainTextEdit#homeConversation {
+QTextEdit#homeConversation {
     background: #111820;
     border: 0;
     border-top: 1px solid #2B3744;

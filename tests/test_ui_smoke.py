@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QToolBar
 
 from panfetch_ai.core.models import OperationPlan, OperationResult, PlanPreview, RemoteItem, SelectionPlan
-from panfetch_ai.ui.assistant_page import AssistantPage
+from panfetch_ai.ui.assistant_page import AssistantPage, ConversationView
 from panfetch_ai.ui.main_window import ChatInput, MainWindow
 from panfetch_ai.ui.settings_dialog import SettingsDialog
 
@@ -69,6 +69,21 @@ def test_assistant_run_details_expand_only_on_request(qtbot, monkeypatch, tmp_pa
     window.home_details_toggle.click()
     assert window.home_details_toggle.isChecked() is False
     assert window.home_details_panel.isHidden() is True
+
+
+def test_conversation_view_distinguishes_user_and_assistant(qtbot) -> None:
+    view = ConversationView()
+    qtbot.addWidget(view)
+    view.append_message("user", "帮我查找集合讲义")
+    view.append_message("assistant", "已找到相关资料。")
+
+    assert view.toPlainText() == "我的提问\n帮我查找集合讲义\n\nPanFetch AI\n已找到相关资料。"
+    user_cursor = view.document().find("我的提问")
+    assistant_cursor = view.document().find("PanFetch AI")
+    assert user_cursor.charFormat().foreground().color().name() == "#6adbe8"
+    assert user_cursor.blockFormat().background().color().name() == "#152934"
+    assert assistant_cursor.charFormat().foreground().color().name() == "#58d6a2"
+    assert assistant_cursor.blockFormat().background().style() == Qt.BrushStyle.NoBrush
 
 
 def test_chat_input_enter_sends_and_shift_enter_adds_line(qtbot) -> None:

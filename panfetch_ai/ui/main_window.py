@@ -778,8 +778,7 @@ class MainWindow(QMainWindow):
         self.home_thinking.appendPlainText("\n• 已中断当前请求")
         interrupted = "已中断本次请求。"
         if self._home_answer_started:
-            self.home_conversation.moveCursor(QTextCursor.MoveOperation.End)
-            self.home_conversation.insertPlainText("\n\n[回答已中断]")
+            self.home_conversation.append_stream_text("\n\n[回答已中断]", status=True)
         else:
             self._append_chat_block("PanFetch AI", interrupted)
         self.agent_history_entries.append(("assistant", interrupted))
@@ -823,9 +822,7 @@ class MainWindow(QMainWindow):
             if not self._home_answer_started:
                 self._append_chat_block("PanFetch AI", "")
                 self._home_answer_started = True
-            self.home_conversation.moveCursor(QTextCursor.MoveOperation.End)
-            self.home_conversation.insertPlainText(text)
-            self.home_conversation.ensureCursorVisible()
+            self.home_conversation.append_stream_text(text)
 
     def _home_ready(self, workflow_result: AssistantRunResult) -> None:
         self.agent_busy = False
@@ -1010,9 +1007,7 @@ class MainWindow(QMainWindow):
         self._task_error(message)
 
     def _append_chat_block(self, speaker: str, text: str) -> None:
-        if self.home_conversation.toPlainText():
-            self.home_conversation.appendPlainText("")
-        self.home_conversation.appendPlainText(f"{speaker}\n{text}")
+        self.home_conversation.append_message("user" if speaker == "你" else "assistant", text)
 
     def check_connection(self) -> None:
         if not self.store.has_baidu_token():

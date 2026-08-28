@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont, QTextBlockFormat, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -32,6 +32,80 @@ class ChatInput(QTextEdit):
                 self.send_requested.emit()
             return
         super().keyPressEvent(event)
+
+
+class ConversationView(QTextEdit):
+    """Role-aware transcript with a restrained highlight for user prompts."""
+
+    USER_BACKGROUND = QColor("#152934")
+    USER_LABEL = QColor("#6ADBE8")
+    USER_TEXT = QColor("#C5F2F5")
+    ASSISTANT_LABEL = QColor("#58D6A2")
+    ASSISTANT_TEXT = QColor("#E9EFF4")
+    STATUS_TEXT = QColor("#F0A09B")
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setObjectName("homeConversation")
+        self.setPlaceholderText("输入一个问题，例如：查找 Java 集合讲义，并告诉我它们在哪。")
+
+    def append_message(self, role: str, text: str) -> None:
+        normalized_role = "user" if role == "user" else "assistant"
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if self.toPlainText():
+            cursor.insertBlock(self._separator_format())
+            cursor.insertBlock(self._block_format(normalized_role, label=True))
+        else:
+            cursor.setBlockFormat(self._block_format(normalized_role, label=True))
+
+        cursor.setCharFormat(self._char_format(normalized_role, label=True))
+        cursor.insertText("我的提问" if normalized_role == "user" else "PanFetch AI")
+        cursor.insertBlock(self._block_format(normalized_role, label=False))
+        cursor.setCharFormat(self._char_format(normalized_role, label=False))
+        cursor.insertText(text)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+
+    def append_stream_text(self, text: str, *, status: bool = False) -> None:
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        char_format = self._char_format("assistant", label=False)
+        if status:
+            char_format.setForeground(self.STATUS_TEXT)
+        cursor.setCharFormat(char_format)
+        cursor.insertText(text)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+
+    @classmethod
+    def _char_format(cls, role: str, *, label: bool) -> QTextCharFormat:
+        char_format = QTextCharFormat()
+        if label:
+            char_format.setForeground(cls.USER_LABEL if role == "user" else cls.ASSISTANT_LABEL)
+            char_format.setFontWeight(QFont.Weight.DemiBold)
+        else:
+            char_format.setForeground(cls.USER_TEXT if role == "user" else cls.ASSISTANT_TEXT)
+        return char_format
+
+    @classmethod
+    def _block_format(cls, role: str, *, label: bool) -> QTextBlockFormat:
+        block_format = QTextBlockFormat()
+        block_format.setLeftMargin(12 if role == "user" else 4)
+        block_format.setRightMargin(12 if role == "user" else 4)
+        block_format.setTopMargin(8 if label else 1)
+        block_format.setBottomMargin(1 if label else 9)
+        if role == "user":
+            block_format.setBackground(cls.USER_BACKGROUND)
+        return block_format
+
+    @staticmethod
+    def _separator_format() -> QTextBlockFormat:
+        block_format = QTextBlockFormat()
+        block_format.setTopMargin(3)
+        block_format.setBottomMargin(3)
+        return block_format
 
 
 class AssistantPage(QWidget):
@@ -100,10 +174,7 @@ class AssistantPage(QWidget):
         scope_layout.addWidget(self.use_current_button)
         chat_layout.addWidget(scope_bar)
 
-        self.conversation = QPlainTextEdit()
-        self.conversation.setReadOnly(True)
-        self.conversation.setObjectName("homeConversation")
-        self.conversation.setPlaceholderText("输入一个问题，例如：查找 Java 集合讲义，并告诉我它们在哪。")
+        self.conversation = ConversationView()
         chat_layout.addWidget(self.conversation, 1)
 
         status_row = QHBoxLayout()
