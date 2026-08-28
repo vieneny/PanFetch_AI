@@ -92,3 +92,5 @@ Selection keys and the complete file map live in the tree's data model rather th
 ## Local data
 
 Credentials live under `.secrets/`; non-secret settings use `local_settings.json`; catalog, conversation, and plan-history data use `.panfetch-ai/`. The plan library reads summaries only and restores full candidates in a worker when a detail is opened. All of these paths are ignored by Git. Logs are redacted but still should not be committed.
+
+`Catalog` includes the Baidu account UID in both its SQLite primary key and path uniqueness constraint. After an account connection succeeds, the UI selects that catalog scope before loading a directory; sign-out returns it to an unauthenticated scope. Early releases had no account column, so startup migration drops and rebuilds only the recoverable `remote_items` cache table. Conversation and plan databases in the same directory remain intact, and no remote file is touched.

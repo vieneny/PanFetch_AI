@@ -56,6 +56,10 @@ def test_main_window_constructs(qtbot, monkeypatch, tmp_path) -> None:
     assert window.account_name.text() == "示例账号"
     assert window.account_meta.text() == "SVIP · UID 42"
     assert window.quota_progress.value() == 250
+    assert window.catalog.account_id == "uk:42"
+
+    window._reset_account_view()
+    assert window.catalog.account_id == "__unscoped__"
 
 
 def test_assistant_run_details_expand_only_on_request(qtbot, monkeypatch, tmp_path) -> None:

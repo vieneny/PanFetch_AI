@@ -117,6 +117,8 @@ The Agent returns one JSON action from this allowlist. Paths, names, URLs, lengt
 
 Conversation history is local-only at `.panfetch-ai/assistant_history.jsonl`. Newly generated download plans are stored in `.panfetch-ai/download_plans.db` with their request, rules, and candidate paths. Both are ignored by Git. The plan library reads lightweight summaries first; opening a plan restores its complete JSON payload in a Qt worker. The detail tree initially materializes only top-level folders and creates direct children on expansion. Selection lives in the complete file model, so select all, invert, and download remain correct for collapsed branches without creating every Qt item.
 
+The directory catalog is isolated by the authorized account UID. After switching Baidu accounts, search, cached directories, and statistics read only the current account's records, so identical paths or file IDs from another account cannot conflict. Upgrading from an early single-account release triggers a one-time rebuild of this recoverable catalog. The migration does not remove conversations, download plans, downloaded files, or any remote content.
+
 Streaming bytes are explicitly decoded as UTF-8. On startup, a conservative atomic repair handles old UTF-8-as-Latin-1 history corruption without changing valid Chinese or English text.
 
 LangSmith is optional:

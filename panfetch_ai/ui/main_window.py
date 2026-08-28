@@ -1179,6 +1179,7 @@ class MainWindow(QMainWindow):
         membership = "SVIP" if vip == 2 else "VIP" if vip == 1 else "普通用户"
         suffix = f" · {membership}"
         uk = account.get("uk")
+        self.catalog.set_account(f"uk:{uk}" if uk is not None else f"name:{name}")
         self.account_name.setText(str(name))
         self.account_meta.setText(f"{membership} · UID {uk}" if uk is not None else membership)
 
@@ -1204,6 +1205,7 @@ class MainWindow(QMainWindow):
         self.load_directory(self.current_path)
 
     def _reset_account_view(self) -> None:
+        self.catalog.set_account("")
         self.account_name.setText("未登录百度网盘")
         self.account_meta.setText("授权后自动显示账号信息")
         self.quota_text.setText("容量：--")
