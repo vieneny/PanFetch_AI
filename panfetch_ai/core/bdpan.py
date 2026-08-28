@@ -55,7 +55,7 @@ class BdpanBackend:
         return BdpanStatus(
             False,
             "unavailable",
-            "未检测到 bdpan。分享、转存和分享链接下载需要在 WSL 安装并登录 bdpan。",
+            "未检测到 bdpan。仅分享链接转存和下载需要在 WSL 安装并登录 bdpan，不影响全盘分享。",
         )
 
     def local_path_argument(self, path: str) -> str:

@@ -75,6 +75,21 @@ class ChatInput(QTextEdit):
         super().keyPressEvent(event)
 
 
+def format_share_copy_text(result: OperationResult, plan: OperationPlan) -> str:
+    details = result.details
+    link = str(details.get("link") or details.get("short_url") or details.get("url") or "").strip()
+    if not link:
+        return ""
+    password = str(details.get("pwd") or details.get("password") or "").strip()
+    period = int(plan.arguments.get("period") or 0)
+    period_label = "永久" if period == 0 else f"{period} 天"
+    lines = [f"分享链接：{link}"]
+    if password:
+        lines.append(f"提取码：{password}")
+    lines.append(f"有效期：{period_label}")
+    return "\n".join(lines)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -90,6 +105,7 @@ class MainWindow(QMainWindow):
         self.current_plan: SelectionPlan | None = None
         self.current_preview: PlanPreview | None = None
         self.current_operation: OperationPlan | None = None
+        self._share_copy_text = ""
         self.download_control: DownloadControl | None = None
         self.download_running = False
         self.download_paused = False
@@ -622,12 +638,18 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.operation_result)
         actions = QHBoxLayout()
         actions.addStretch(1)
+        self.copy_share_button = QPushButton("复制分享信息")
+        self.copy_share_button.setToolTip("复制分享链接、提取码和有效期")
+        self.copy_share_button.setVisible(False)
+        self.copy_share_button.setEnabled(False)
+        self.copy_share_button.clicked.connect(self.copy_share_result)
         cancel = QPushButton("取消计划")
         cancel.clicked.connect(self.cancel_operation_plan)
         self.operation_confirm = QPushButton("确认并执行")
         self.operation_confirm.setProperty("primary", True)
         self.operation_confirm.setEnabled(False)
         self.operation_confirm.clicked.connect(self.execute_operation_plan)
+        actions.addWidget(self.copy_share_button)
         actions.addWidget(cancel)
         actions.addWidget(self.operation_confirm)
         layout.addLayout(actions)
@@ -968,13 +990,20 @@ class MainWindow(QMainWindow):
     def _show_operation_plan(self, plan: OperationPlan) -> None:
         self.current_operation = plan
         self.operation_title.setText(plan.title)
-        backend = "百度网盘 OpenAPI" if plan.backend == "openapi" else "bdpan Skill 后端"
+        backend_labels = {
+            "openapi": "百度网盘 OpenAPI",
+            "mcp": "百度官方 MCP（全盘分享）",
+            "bdpan": "bdpan Skill（分享链接转存/下载）",
+        }
+        backend = backend_labels.get(plan.backend, plan.backend)
         available = True
         detail = backend
         if plan.backend == "bdpan":
             status = BdpanBackend().status()
             available = status.available
             detail = f"执行后端：{backend}\n{status.detail}"
+        elif plan.backend == "mcp":
+            detail = f"执行后端：{backend}\n使用当前百度 OAuth 授权，不依赖 bdpan。"
         else:
             detail = f"执行后端：{backend}"
         self.operation_backend.setText(detail)
@@ -984,12 +1013,17 @@ class MainWindow(QMainWindow):
         warnings = "\n".join(f"注意：{item}" for item in plan.warnings)
         self.operation_details.setPlainText(plan.summary + (f"\n\n{warnings}" if warnings else ""))
         self.operation_result.clear()
+        self._share_copy_text = ""
+        self.copy_share_button.setVisible(plan.action == "share")
+        self.copy_share_button.setEnabled(False)
         self.operation_confirm.setEnabled(available)
         self.operation_confirm.setText("确认并执行")
         self.switch_page(3)
 
     def cancel_operation_plan(self) -> None:
         self.current_operation = None
+        self._share_copy_text = ""
+        self.copy_share_button.setEnabled(False)
         self.operation_confirm.setEnabled(False)
         self.operation_result.setPlainText("操作计划已取消，未执行任何写入。")
         self.statusBar().showMessage("操作计划已取消")
@@ -1009,6 +1043,8 @@ class MainWindow(QMainWindow):
             return
         self.operation_confirm.setEnabled(False)
         self.operation_result.setPlainText("正在执行…")
+        self._share_copy_text = ""
+        self.copy_share_button.setEnabled(False)
 
         def work(progress: Any) -> OperationResult:
             return NetdiskOperationExecutor(self._client()).execute(plan, progress)
@@ -1034,12 +1070,21 @@ class MainWindow(QMainWindow):
     def _operation_ready(self, result: OperationResult) -> None:
         self.operation_result.appendPlainText(result.message)
         self.quick_output.setPlainText(result.message)
+        if result.action == "share" and self.current_operation is not None:
+            self._share_copy_text = format_share_copy_text(result, self.current_operation)
+            self.copy_share_button.setEnabled(bool(self._share_copy_text))
         self.current_operation = None
         self.operation_confirm.setText("执行完成")
         self.operation_confirm.setEnabled(False)
         self.statusBar().showMessage(result.message.splitlines()[0])
         if result.action in {"upload", "move", "copy", "rename", "mkdir", "transfer"}:
             self.load_directory(self.current_path)
+
+    def copy_share_result(self) -> None:
+        if not self._share_copy_text:
+            return
+        QApplication.clipboard().setText(self._share_copy_text)
+        self.statusBar().showMessage("分享链接、提取码和有效期已复制")
 
     def _operation_error(self, message: str) -> None:
         self.operation_result.appendPlainText(f"执行失败：{message}")
@@ -1160,7 +1205,7 @@ class MainWindow(QMainWindow):
         baidu_mark = "正常" if result.get("baidu_ok") else "异常"
         llm_mark = "正常" if result.get("llm_ok") else "异常"
         share_mark = "可用" if result.get("share_ok") else "不可用"
-        bdpan_mark = "可用" if result.get("bdpan_ok") else "不可用"
+        bdpan_mark = "可用" if result.get("bdpan_ok") else "未配置（可选）"
         box = QMessageBox(self)
         box.setWindowTitle("连接状态")
         box.setIcon(
@@ -1172,7 +1217,7 @@ class MainWindow(QMainWindow):
             f"百度网盘：{baidu_mark}\n{result.get('baidu_detail')}\n\n"
             f"LLM：{llm_mark}\n{result.get('llm_detail')}\n\n"
             f"全盘分享：{share_mark}\n{result.get('share_detail')}\n\n"
-            f"转存/分享链接下载：{bdpan_mark}\n{result.get('bdpan_detail')}"
+            f"分享链接转存/下载：{bdpan_mark}\n{result.get('bdpan_detail')}"
         )
         box.exec()
 

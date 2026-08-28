@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QToolBar
+from PySide6.QtWidgets import QApplication, QLabel, QToolBar
 
-from panfetch_ai.core.models import PlanPreview, RemoteItem, SelectionPlan
+from panfetch_ai.core.models import OperationPlan, OperationResult, PlanPreview, RemoteItem, SelectionPlan
 from panfetch_ai.ui.main_window import ChatInput, MainWindow
 from panfetch_ai.ui.settings_dialog import SettingsDialog
 
@@ -122,6 +122,45 @@ def test_plan_opens_on_dedicated_page(qtbot, monkeypatch, tmp_path) -> None:
     assert "/课程" in window.plan_summary.text()
 
 
+def test_share_plan_displays_official_mcp_backend(qtbot, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("panfetch_ai.ui.main_window.QTimer.singleShot", lambda *_: None)
+    monkeypatch.setattr("panfetch_ai.core.catalog.DEFAULT_DB", tmp_path / "catalog.db")
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._show_operation_plan(
+        OperationPlan(
+            "share",
+            "生成百度网盘分享链接",
+            "分享内容：/课程/讲义.pdf",
+            {"paths": ["/课程/讲义.pdf"], "period": 7},
+            backend="mcp",
+        )
+    )
+
+    backend_text = window.operation_backend.text()
+    assert "百度官方 MCP（全盘分享）" in backend_text
+    assert "不依赖 bdpan" in backend_text
+    assert "bdpan Skill 后端" not in backend_text
+    assert window.operation_confirm.isEnabled() is True
+    assert window.copy_share_button.isHidden() is False
+    assert window.copy_share_button.isEnabled() is False
+
+    window._operation_ready(
+        OperationResult(
+            "share",
+            "分享链接已生成：https://pan.baidu.com/s/example\n提取码：a1b2",
+            {"link": "https://pan.baidu.com/s/example", "pwd": "a1b2"},
+        )
+    )
+    assert window.copy_share_button.isEnabled() is True
+
+    window.copy_share_result()
+    assert QApplication.clipboard().text() == (
+        "分享链接：https://pan.baidu.com/s/example\n提取码：a1b2\n有效期：7 天"
+    )
+
+
 def test_connection_status_dialog_contains_baidu_and_llm(qtbot, monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("panfetch_ai.ui.main_window.QTimer.singleShot", lambda *_: None)
     monkeypatch.setattr("panfetch_ai.core.catalog.DEFAULT_DB", tmp_path / "catalog.db")
@@ -139,11 +178,18 @@ def test_connection_status_dialog_contains_baidu_and_llm(qtbot, monkeypatch, tmp
             "avatar": b"",
             "llm_ok": True,
             "llm_detail": "已连接：example-model · 响应正常",
+            "share_ok": True,
+            "share_detail": "百度官方 MCP 全盘分享服务可用",
+            "bdpan_ok": False,
+            "bdpan_detail": "未检测到 bdpan。仅分享链接转存和下载需要在 WSL 安装并登录 bdpan，不影响全盘分享。",
         }
     )
     assert captured
     assert "百度网盘：正常" in captured[0]
     assert "LLM：正常" in captured[0]
+    assert "全盘分享：可用" in captured[0]
+    assert "分享链接转存/下载：未配置（可选）" in captured[0]
+    assert "不影响全盘分享" in captured[0]
 
 
 def test_settings_uses_unsaved_llm_values(qtbot, tmp_path) -> None:
