@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QToolBar
 
@@ -162,7 +164,32 @@ def test_plan_opens_on_dedicated_page(qtbot, monkeypatch, tmp_path) -> None:
     assert window.plan_history_page.table.rowCount() == 1
     assert window.plan_history_page.table.currentRow() == 0
     assert window.plan_history_page.open_button.isEnabled() is True
+    record_id = window.plan_history_page.selected_record_id()
+    record = window.plan_history_store.get(record_id)
+    assert record is not None
+    pending: dict[str, object] = {}
+    reads: list[str] = []
+    monkeypatch.setattr(
+        window.plan_history_store,
+        "get",
+        lambda selected_id: reads.append(selected_id) or record,
+    )
+
+    def defer_task(label, function, on_result, *args, **kwargs) -> None:
+        pending.update(label=label, function=function, on_result=on_result)
+
+    monkeypatch.setattr(window, "_run_task", defer_task)
+    monkeypatch.setattr(window, "_fill_table", lambda *_: pytest.fail("计划详情不应填充工作台表格"))
     window.open_selected_plan()
+    assert reads == []
+    assert pending["label"] == "正在读取计划详情…"
+    assert window.plan_history_page.is_loading is True
+    assert window.plan_history_page.open_button.text() == "正在读取…"
+    assert window.page_stack.currentWidget() is window.plan_history_page
+    loaded = pending["function"](None)
+    pending["on_result"](loaded)
+    assert reads == [record_id]
+    assert window.plan_history_page.is_loading is False
     assert window.page_stack.currentWidget() is window.plan_page
     assert "/课程" in window.plan_summary.text()
 
@@ -182,12 +209,49 @@ def test_plan_tree_groups_files_by_folder_and_parent_check_controls_children(qtb
     course = window.plan_tree.topLevelItem(0)
     assert course.text(0) == "课程"
     assert course.text(2) == "3 个文件 · 330 B"
-    assert course.childCount() == 2
+    assert course.childCount() == 1
     assert len(window._checked_plan_items()) == 3
 
     course.setCheckState(0, Qt.CheckState.Unchecked)
     assert window._checked_plan_items() == []
     assert window.plan_download_button.isEnabled() is False
+    course.setExpanded(True)
+    assert course.childCount() == 2
+    assert all(course.child(index).checkState(0) == Qt.CheckState.Unchecked for index in range(course.childCount()))
+
+    course.setCheckState(0, Qt.CheckState.Checked)
+    assert len(window._checked_plan_items()) == 3
+    module = next(course.child(index) for index in range(course.childCount()) if course.child(index).text(0) == "模块一")
+    assert module.childCount() == 1
+    module.setExpanded(True)
+    assert module.childCount() == 2
+    module.child(0).setCheckState(0, Qt.CheckState.Unchecked)
+    assert len(window._checked_plan_items()) == 2
+    assert module.checkState(0) == Qt.CheckState.PartiallyChecked
+    assert course.checkState(0) == Qt.CheckState.PartiallyChecked
+
+
+def test_large_plan_tree_keeps_initial_qt_node_count_small(qtbot) -> None:
+    from panfetch_ai.ui.download_plan_tree import DownloadPlanTree
+
+    tree = DownloadPlanTree()
+    qtbot.addWidget(tree)
+    items = [
+        RemoteItem(index + 1, f"/课程/模块{index // 50:02d}/资料{index:04d}.pdf", f"资料{index:04d}.pdf", False, size=1024)
+        for index in range(618)
+    ]
+
+    tree.set_items(items)
+
+    assert tree.topLevelItemCount() == 1
+    course = tree.topLevelItem(0)
+    assert course.childCount() == 1
+    assert len(tree.checked_items()) == 618
+    course.setCheckState(0, Qt.CheckState.Unchecked)
+    assert tree.checked_items() == []
+    course.setExpanded(True)
+    assert course.childCount() == 13
+    assert course.childCount() < len(items) // 10
 
 
 def test_share_plan_displays_official_mcp_backend(qtbot, monkeypatch, tmp_path) -> None:

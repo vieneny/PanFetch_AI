@@ -107,6 +107,9 @@ def main() -> int:
         window.resize(1480, 900)
         window.plan_history_page.table.selectRow(1)
         window.open_selected_plan()
+        QTimer.singleShot(500, capture_plan_detail)
+
+    def capture_plan_detail() -> None:
         window.grab().save(str(OUTPUT / "panfetch-ai-plan.png"))
         window.resize(1120, 720)
         QTimer.singleShot(250, capture_narrow_plan)

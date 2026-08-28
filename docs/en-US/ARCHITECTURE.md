@@ -76,11 +76,17 @@ SSE is consumed as raw bytes and decoded explicitly as UTF-8, avoiding `requests
 ## Download lifecycle
 
 1. Scan source paths and build a preview, then persist its summary and complete candidate payload locally.
-2. Open the plan library and select one historical plan.
-3. Restore the plan detail as a collapsed, checkable folder tree; only checked leaf files become download inputs.
+2. Select a historical plan; a worker reads SQLite and parses the complete JSON while the UI thread remains responsive.
+3. Restore a collapsed, checkable folder tree. Only top-level Qt items are created initially; expanding a folder materializes its direct children.
 4. Expand any manually selected workspace folders recursively in a background worker and deduplicate files.
 5. Select a local destination and confirm the folder-first content summary, file count, byte size, and organization mode.
 6. Query at most ten file IDs per Baidu metadata request.
 7. Download with 1-10 workers and up to three attempts per file.
 8. Stream to `.part-*`, calculate SHA-256, and verify expected size.
 9. Atomically move the completed file and write `PanFetch AI下载清单.json`.
+
+Selection keys and the complete file map live in the tree's data model rather than in visible Qt leaf items. Select all, clear, and invert therefore cover collapsed descendants, while only final checked files reach the downloader. Opening a plan does not duplicate its candidate files into the workspace table.
+
+## Local data
+
+Credentials live under `.secrets/`; non-secret settings use `local_settings.json`; catalog, conversation, and plan-history data use `.panfetch-ai/`. The plan library reads summaries only and restores full candidates in a worker when a detail is opened. All of these paths are ignored by Git. Logs are redacted but still should not be committed.

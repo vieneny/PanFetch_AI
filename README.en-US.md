@@ -18,7 +18,7 @@ PanFetch AI is an open-source Windows desktop application for exploring, managin
 - Move, copy, rename, and share remote content, and create nested directories.
 - Create 1-day, 7-day, 30-day, or permanent share links for files and folders anywhere in the authorized netdisk through Baidu's official MCP service.
 - Use the optional `bdpan` backend for share-link transfer and share-link download workflows.
-- Generate download plans from source paths, desired content, exclusions, destination, and organization rules.
+- Generate download plans from source paths, desired content, exclusions, destination, and organization rules; restore full history in a worker and lazily materialize expanded folder levels.
 - Connect to OpenAI, DeepSeek, SiliconFlow, Ollama, and other OpenAI-compatible providers.
 - Support both `chat/completions` and `responses`, configurable API-key headers and prefixes, and additional non-secret headers.
 - Run 1-10 concurrent downloads with retry, pause, resume, cancel, existing-file skip, size validation, and SHA-256 manifests.
@@ -115,7 +115,7 @@ The internal workflow is `route -> tool -> answer`. Agent execution and AI plans
 
 The Agent returns one JSON action from this allowlist. Paths, names, URLs, lengths, depth, and result counts are validated. Cloud-write tools produce an `OperationPlan`; they do not execute during model inference. The current `inspect` tool uses metadata and directory structure and does not silently download and parse document bodies.
 
-Conversation history is local-only at `.panfetch-ai/assistant_history.jsonl`. Newly generated download plans are stored in `.panfetch-ai/download_plans.db` with their request, rules, and candidate paths. Both are ignored by Git. The plan library reads lightweight summaries first and restores the complete preview only after a plan is opened. Candidate files are grouped into a checkable folder tree; folders are collapsed by default and only checked leaf files reach the downloader.
+Conversation history is local-only at `.panfetch-ai/assistant_history.jsonl`. Newly generated download plans are stored in `.panfetch-ai/download_plans.db` with their request, rules, and candidate paths. Both are ignored by Git. The plan library reads lightweight summaries first; opening a plan restores its complete JSON payload in a Qt worker. The detail tree initially materializes only top-level folders and creates direct children on expansion. Selection lives in the complete file model, so select all, invert, and download remain correct for collapsed branches without creating every Qt item.
 
 Streaming bytes are explicitly decoded as UTF-8. On startup, a conservative atomic repair handles old UTF-8-as-Latin-1 history corruption without changing valid Chinese or English text.
 

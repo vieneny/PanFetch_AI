@@ -25,6 +25,7 @@ class PlanHistoryPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._loading = False
         self.setObjectName("planHistoryPage")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 18, 22, 18)
@@ -121,8 +122,18 @@ class PlanHistoryPage(QWidget):
         item = self.table.item(row, 0)
         return str(item.data(Qt.ItemDataRole.UserRole) or "") if item else ""
 
+    def set_loading(self, loading: bool) -> None:
+        self._loading = loading
+        self.open_button.setText("正在读取…" if loading else "查看详情")
+        self.open_button.setEnabled(not loading and bool(self.selected_record_id()))
+        self.table.setEnabled(not loading)
+
+    @property
+    def is_loading(self) -> bool:
+        return self._loading
+
     def _selection_changed(self) -> None:
-        self.open_button.setEnabled(bool(self.selected_record_id()))
+        self.open_button.setEnabled(not self._loading and bool(self.selected_record_id()))
 
     def _show_empty(self, empty: bool) -> None:
         self.table.setVisible(not empty)

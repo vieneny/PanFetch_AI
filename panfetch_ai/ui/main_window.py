@@ -983,14 +983,33 @@ class MainWindow(QMainWindow):
             self.plan_history_page.populate(self.plan_history_store.summaries())
 
     def open_selected_plan(self) -> None:
-        record_id = self.plan_history_page.selected_record_id()
-        record = self.plan_history_store.get(record_id)
-        if record is None:
-            QMessageBox.warning(self, "计划无法读取", "该历史计划不存在或本地记录已损坏。")
-            self._reload_plan_history()
+        if self.plan_history_page.is_loading:
             return
-        self._show_plan_preview(record)
-        self.switch_page(2)
+        record_id = self.plan_history_page.selected_record_id()
+        if not record_id:
+            return
+        self.plan_history_page.set_loading(True)
+
+        def ready(record: PlanHistoryRecord | None) -> None:
+            self.plan_history_page.set_loading(False)
+            if record is None:
+                QMessageBox.warning(self, "计划无法读取", "该历史计划不存在或本地记录已损坏。")
+                self._reload_plan_history()
+                return
+            self._show_plan_preview(record)
+            self.switch_page(2)
+            self.statusBar().showMessage("计划详情已加载")
+
+        def failed(message: str) -> None:
+            self.plan_history_page.set_loading(False)
+            self._task_error(message)
+
+        self._run_task(
+            "正在读取计划详情…",
+            lambda _: self.plan_history_store.get(record_id),
+            ready,
+            on_error=failed,
+        )
 
     def _home_error(self, message: str) -> None:
         self.agent_busy = False
@@ -1427,8 +1446,6 @@ class MainWindow(QMainWindow):
         self.current_preview = preview
         self.destination_edit.setText(plan.destination)
         self.current_items = preview.selected
-        self._fill_table(preview.selected, "AI 选择")
-        self._set_all_checked(True)
         self._fill_plan_tree(preview.selected)
         self.plan_download_button.setEnabled(bool(preview.selected))
         excluded = "、".join(f"{name} {count}" for name, count in preview.excluded_reasons.items()) or "无"

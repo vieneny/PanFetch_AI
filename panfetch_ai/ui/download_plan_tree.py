@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Iterator
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
@@ -11,20 +10,23 @@ from PySide6.QtWidgets import QHeaderView, QStyle, QTreeWidget, QTreeWidgetItem
 from panfetch_ai.core.models import RemoteItem
 
 
+REMOTE_ROLE = Qt.ItemDataRole.UserRole
+BRANCH_ROLE = Qt.ItemDataRole.UserRole + 1
+PLACEHOLDER_ROLE = Qt.ItemDataRole.UserRole + 2
+
+
 @dataclass(slots=True)
 class PlanTreeBranch:
     name: str
     path: str
     folders: dict[str, "PlanTreeBranch"] = field(default_factory=dict)
     files: list[RemoteItem] = field(default_factory=list)
+    file_keys: list[str] = field(default_factory=list)
+    total_bytes: int = 0
 
     @property
     def file_count(self) -> int:
-        return len(self.files) + sum(folder.file_count for folder in self.folders.values())
-
-    @property
-    def total_bytes(self) -> int:
-        return sum(item.size for item in self.files) + sum(folder.total_bytes for folder in self.folders.values())
+        return len(self.file_keys)
 
 
 class DownloadPlanTree(QTreeWidget):
@@ -33,12 +35,16 @@ class DownloadPlanTree(QTreeWidget):
     def __init__(self, parent: QTreeWidget | None = None) -> None:
         super().__init__(parent)
         self._updating = False
+        self._items_by_key: dict[str, RemoteItem] = {}
+        self._ordered_keys: list[str] = []
+        self._selected_keys: set[str] = set()
         self.setObjectName("planTree")
         self.setColumnCount(4)
         self.setHeaderLabels(["下载内容", "类型", "文件 / 体积", "网盘路径"])
         self.setAlternatingRowColors(True)
         self.setEditTriggers(QTreeWidget.EditTrigger.NoEditTriggers)
         self.itemChanged.connect(self._item_changed)
+        self.itemExpanded.connect(self._populate_folder)
         header = self.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(0, 340)
@@ -51,7 +57,8 @@ class DownloadPlanTree(QTreeWidget):
     def set_items(self, items: list[RemoteItem]) -> None:
         self._updating = True
         self.clear()
-        root = _build_plan_tree(items)
+        root, self._items_by_key, self._ordered_keys = _build_plan_tree(items)
+        self._selected_keys = set(self._ordered_keys)
         for branch in sorted(root.folders.values(), key=lambda item: item.name.casefold()):
             self._add_folder(self, branch)
         for remote in sorted(root.files, key=lambda item: item.name.casefold()):
@@ -59,31 +66,23 @@ class DownloadPlanTree(QTreeWidget):
         self._updating = False
         self.selection_changed.emit()
 
+    def clear(self) -> None:
+        super().clear()
+        self._items_by_key = {}
+        self._ordered_keys = []
+        self._selected_keys = set()
+
     def checked_items(self) -> list[RemoteItem]:
-        return [
-            remote
-            for item in self._walk_items()
-            if item.checkState(0) == Qt.CheckState.Checked
-            and isinstance((remote := item.data(0, Qt.ItemDataRole.UserRole)), RemoteItem)
-        ]
+        return [self._items_by_key[key] for key in self._ordered_keys if key in self._selected_keys]
 
     def set_all_checked(self, checked: bool) -> None:
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        self._updating = True
-        for item in self._walk_items():
-            item.setCheckState(0, state)
-        self._updating = False
+        self._selected_keys = set(self._ordered_keys) if checked else set()
+        self._refresh_visible_states()
         self.selection_changed.emit()
 
     def invert_checks(self) -> None:
-        self._updating = True
-        for item in self._walk_items():
-            if isinstance(item.data(0, Qt.ItemDataRole.UserRole), RemoteItem):
-                state = Qt.CheckState.Unchecked if item.checkState(0) == Qt.CheckState.Checked else Qt.CheckState.Checked
-                item.setCheckState(0, state)
-        for index in range(self.topLevelItemCount()):
-            self._refresh_folder_state(self.topLevelItem(index))
-        self._updating = False
+        self._selected_keys = set(self._ordered_keys).difference(self._selected_keys)
+        self._refresh_visible_states()
         self.selection_changed.emit()
 
     def _add_folder(self, parent: QTreeWidget | QTreeWidgetItem, branch: PlanTreeBranch) -> QTreeWidgetItem:
@@ -95,12 +94,11 @@ class DownloadPlanTree(QTreeWidget):
         item.setFont(3, QFont("Cascadia Mono", 9))
         item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        item.setCheckState(0, Qt.CheckState.Checked)
-        item.setData(0, Qt.ItemDataRole.UserRole + 1, branch.path)
-        for child in sorted(branch.folders.values(), key=lambda value: value.name.casefold()):
-            self._add_folder(item, child)
-        for remote in sorted(branch.files, key=lambda value: value.name.casefold()):
-            self._add_file(item, remote)
+        item.setData(0, BRANCH_ROLE, branch)
+        item.setCheckState(0, self._branch_state(branch))
+        if branch.folders or branch.files:
+            placeholder = QTreeWidgetItem(item)
+            placeholder.setData(0, PLACEHOLDER_ROLE, True)
         item.setExpanded(False)
         return item
 
@@ -113,68 +111,100 @@ class DownloadPlanTree(QTreeWidget):
         item.setFont(3, QFont("Cascadia Mono", 9))
         item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        item.setCheckState(0, Qt.CheckState.Checked)
-        item.setData(0, Qt.ItemDataRole.UserRole, remote)
+        item.setData(0, REMOTE_ROLE, remote)
+        state = Qt.CheckState.Checked if _item_key(remote) in self._selected_keys else Qt.CheckState.Unchecked
+        item.setCheckState(0, state)
         return item
 
-    def _item_changed(self, item: QTreeWidgetItem, column: int) -> None:
-        if self._updating or column != 0:
+    def _populate_folder(self, item: QTreeWidgetItem) -> None:
+        branch = item.data(0, BRANCH_ROLE)
+        if not isinstance(branch, PlanTreeBranch) or not self._has_placeholder(item):
             return
         self._updating = True
-        if item.checkState(0) in {Qt.CheckState.Checked, Qt.CheckState.Unchecked}:
-            self._set_descendants(item, item.checkState(0))
-        parent = item.parent()
-        while parent is not None:
-            self._set_parent_state(parent)
-            parent = parent.parent()
+        item.takeChildren()
+        for child in sorted(branch.folders.values(), key=lambda value: value.name.casefold()):
+            self._add_folder(item, child)
+        for remote in sorted(branch.files, key=lambda value: value.name.casefold()):
+            self._add_file(item, remote)
         self._updating = False
+
+    def _item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        if self._updating or column != 0 or item.data(0, PLACEHOLDER_ROLE):
+            return
+        state = item.checkState(0)
+        if state not in {Qt.CheckState.Checked, Qt.CheckState.Unchecked}:
+            return
+        checked = state == Qt.CheckState.Checked
+        branch = item.data(0, BRANCH_ROLE)
+        remote = item.data(0, REMOTE_ROLE)
+        if isinstance(branch, PlanTreeBranch):
+            keys = branch.file_keys
+        elif isinstance(remote, RemoteItem):
+            keys = [_item_key(remote)]
+        else:
+            return
+        if checked:
+            self._selected_keys.update(keys)
+        else:
+            self._selected_keys.difference_update(keys)
+        self._refresh_visible_states()
         self.selection_changed.emit()
 
-    def _set_descendants(self, item: QTreeWidgetItem, state: Qt.CheckState) -> None:
-        for index in range(item.childCount()):
-            child = item.child(index)
-            child.setCheckState(0, state)
-            self._set_descendants(child, state)
+    def _refresh_visible_states(self) -> None:
+        self._updating = True
+
+        def refresh(item: QTreeWidgetItem) -> None:
+            branch = item.data(0, BRANCH_ROLE)
+            remote = item.data(0, REMOTE_ROLE)
+            if isinstance(branch, PlanTreeBranch):
+                item.setCheckState(0, self._branch_state(branch))
+            elif isinstance(remote, RemoteItem):
+                state = Qt.CheckState.Checked if _item_key(remote) in self._selected_keys else Qt.CheckState.Unchecked
+                item.setCheckState(0, state)
+            for index in range(item.childCount()):
+                child = item.child(index)
+                if not child.data(0, PLACEHOLDER_ROLE):
+                    refresh(child)
+
+        for index in range(self.topLevelItemCount()):
+            refresh(self.topLevelItem(index))
+        self._updating = False
+
+    def _branch_state(self, branch: PlanTreeBranch) -> Qt.CheckState:
+        selected_count = sum(key in self._selected_keys for key in branch.file_keys)
+        if not selected_count:
+            return Qt.CheckState.Unchecked
+        if selected_count == branch.file_count:
+            return Qt.CheckState.Checked
+        return Qt.CheckState.PartiallyChecked
 
     @staticmethod
-    def _set_parent_state(item: QTreeWidgetItem) -> None:
-        states = {item.child(index).checkState(0) for index in range(item.childCount())}
-        if states == {Qt.CheckState.Checked}:
-            item.setCheckState(0, Qt.CheckState.Checked)
-        elif states == {Qt.CheckState.Unchecked}:
-            item.setCheckState(0, Qt.CheckState.Unchecked)
-        else:
-            item.setCheckState(0, Qt.CheckState.PartiallyChecked)
-
-    def _refresh_folder_state(self, item: QTreeWidgetItem) -> None:
-        for index in range(item.childCount()):
-            self._refresh_folder_state(item.child(index))
-        if item.childCount():
-            self._set_parent_state(item)
-
-    def _walk_items(self) -> Iterator[QTreeWidgetItem]:
-        def walk(item: QTreeWidgetItem) -> Iterator[QTreeWidgetItem]:
-            yield item
-            for child_index in range(item.childCount()):
-                yield from walk(item.child(child_index))
-
-        for top_index in range(self.topLevelItemCount()):
-            yield from walk(self.topLevelItem(top_index))
+    def _has_placeholder(item: QTreeWidgetItem) -> bool:
+        return item.childCount() == 1 and bool(item.child(0).data(0, PLACEHOLDER_ROLE))
 
 
-def _build_plan_tree(items: list[RemoteItem]) -> PlanTreeBranch:
+def _build_plan_tree(items: list[RemoteItem]) -> tuple[PlanTreeBranch, dict[str, RemoteItem], list[str]]:
     root = PlanTreeBranch("", "/")
-    deduplicated = {item.fs_id or item.path: item for item in items if not item.is_dir}
-    for remote in deduplicated.values():
+    items_by_key = {_item_key(remote): remote for remote in items if not remote.is_dir}
+    ordered_keys = list(items_by_key)
+    for key, remote in items_by_key.items():
         branch = root
+        branch.file_keys.append(key)
+        branch.total_bytes += remote.size
         current_path = ""
         for part in PurePosixPath(remote.path).parent.parts:
             if part == "/":
                 continue
             current_path = f"{current_path}/{part}"
             branch = branch.folders.setdefault(part, PlanTreeBranch(part, current_path))
+            branch.file_keys.append(key)
+            branch.total_bytes += remote.size
         branch.files.append(remote)
-    return root
+    return root, items_by_key, ordered_keys
+
+
+def _item_key(item: RemoteItem) -> str:
+    return f"id:{item.fs_id}" if item.fs_id else f"path:{item.path}"
 
 
 def _format_size(size: int) -> str:
