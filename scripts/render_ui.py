@@ -13,7 +13,7 @@ from panfetch_ai.ui.main_window import MainWindow
 from panfetch_ai.ui.settings_dialog import SettingsDialog
 
 
-OUTPUT = Path(__file__).resolve().parents[1] / "artifacts"
+OUTPUT = Path(os.getenv("PANFETCH_UI_OUTPUT", Path(__file__).resolve().parents[1] / "artifacts"))
 
 
 def main() -> int:
@@ -63,7 +63,20 @@ def main() -> int:
     window.show()
 
     def capture_main() -> None:
+        window.resize(1480, 900)
         window.grab().save(str(OUTPUT / "panfetch-ai-home.png"))
+        window.resize(1120, 720)
+        QTimer.singleShot(250, capture_narrow_home)
+
+    def capture_narrow_home() -> None:
+        window.grab().save(str(OUTPUT / "panfetch-ai-home-narrow.png"))
+        window.resize(1480, 900)
+        window.home_details_toggle.setChecked(True)
+        QTimer.singleShot(250, capture_expanded_home)
+
+    def capture_expanded_home() -> None:
+        window.grab().save(str(OUTPUT / "panfetch-ai-home-details.png"))
+        window.home_details_toggle.setChecked(False)
         window.switch_page(1)
         window.grab().save(str(OUTPUT / "panfetch-ai-workspace.png"))
         window.grab().save(str(OUTPUT / "panfetch-ai-quick.png"))

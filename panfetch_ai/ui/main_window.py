@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPixmap, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
@@ -34,7 +33,6 @@ from PySide6.QtWidgets import (
     QStyle,
     QTableWidget,
     QTableWidgetItem,
-    QTextEdit,
     QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -56,23 +54,10 @@ from panfetch_ai.core.operations import NetdiskOperationExecutor, build_operatio
 from panfetch_ai.core.planner import LLMPlanner
 from panfetch_ai.core.rules import build_preview
 from panfetch_ai.core.structure import chapter_lines, items_to_csv, tree_text
+from panfetch_ai.ui.assistant_page import AssistantPage, ChatInput
 from panfetch_ai.ui.settings_dialog import SettingsDialog
 from panfetch_ai.ui.workers import TaskRunner
 from panfetch_ai.logging_setup import log_info
-
-
-class ChatInput(QTextEdit):
-    send_requested = Signal()
-
-    def keyPressEvent(self, event: Any) -> None:
-        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter} and not (
-            event.modifiers() & Qt.KeyboardModifier.ShiftModifier
-        ):
-            event.accept()
-            if not event.isAutoRepeat():
-                self.send_requested.emit()
-            return
-        super().keyPressEvent(event)
 
 
 def format_share_copy_text(result: OperationResult, plan: OperationPlan) -> str:
@@ -215,126 +200,30 @@ class MainWindow(QMainWindow):
             self.task_bar.setVisible(index in {1, 2})
 
     def _build_home_page(self) -> QWidget:
-        page = QWidget()
-        page.setObjectName("homePage")
-        root = QHBoxLayout(page)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(12)
-
-        history_panel = QFrame()
-        history_panel.setObjectName("historyRail")
-        history_panel.setFixedWidth(245)
-        history_layout = QVBoxLayout(history_panel)
-        history_title = QLabel("历史会话")
-        history_title.setProperty("sectionTitle", True)
-        history_layout.addWidget(history_title)
-        new_chat = QPushButton("新建会话")
-        new_chat.setProperty("primary", True)
-        new_chat.clicked.connect(self.new_conversation)
-        history_layout.addWidget(new_chat)
-        self.history_list = QListWidget()
-        self.history_list.itemClicked.connect(self.load_conversation)
-        history_layout.addWidget(self.history_list, 1)
-        history_hint = QLabel("请求、回答和工具日志只保存在本机。")
-        history_hint.setProperty("muted", True)
-        history_hint.setWordWrap(True)
-        history_layout.addWidget(history_hint)
-        root.addWidget(history_panel)
-
-        chat_panel = QFrame()
-        chat_panel.setObjectName("chatSurface")
-        chat_layout = QVBoxLayout(chat_panel)
-        chat_heading = QHBoxLayout()
-        title_box = QVBoxLayout()
-        title = QLabel("AI 问答")
-        title.setObjectName("homeTitle")
-        subtitle = QLabel("查找资料位置、识别内容组成，或准备指定格式的文件与文件夹下载计划。")
-        subtitle.setProperty("muted", True)
-        subtitle.setWordWrap(True)
-        title_box.addWidget(title)
-        title_box.addWidget(subtitle)
-        chat_heading.addLayout(title_box, 1)
-        self.open_result_button = QPushButton("查看工作台结果")
-        self.open_result_button.setEnabled(False)
-        self.open_result_button.clicked.connect(self.open_latest_result)
-        chat_heading.addWidget(self.open_result_button)
-        chat_layout.addLayout(chat_heading)
-
-        scope_row = QHBoxLayout()
-        scope_label = QLabel("提问范围")
-        scope_label.setProperty("muted", True)
-        self.scope_combo = QComboBox()
-        self.scope_combo.addItem("全局网盘", "global")
-        self.scope_combo.addItem("当前目录", "current")
-        self.scope_combo.addItem("指定路径", "custom")
-        self.scope_combo.currentIndexChanged.connect(self._scope_changed)
-        self.scope_path = QLineEdit("/")
-        self.scope_path.setFont(QFont("Cascadia Mono", 10))
-        self.scope_path.setEnabled(False)
-        use_current = QPushButton("使用当前目录")
-        use_current.clicked.connect(self._use_current_scope)
-        scope_row.addWidget(scope_label)
-        scope_row.addWidget(self.scope_combo)
-        scope_row.addWidget(self.scope_path, 1)
-        scope_row.addWidget(use_current)
-        chat_layout.addLayout(scope_row)
-
-        self.home_conversation = QPlainTextEdit()
-        self.home_conversation.setReadOnly(True)
-        self.home_conversation.setObjectName("homeConversation")
-        self.home_conversation.setPlaceholderText("从一个问题开始，例如：帮我找到网盘里的 Java 集合资料，并说明它们分别在哪。")
-        chat_layout.addWidget(self.home_conversation, 1)
-
-        self.home_thinking = QPlainTextEdit()
-        self.home_thinking.setReadOnly(True)
-        self.home_thinking.setObjectName("thinkingStream")
-        self.home_thinking.setMaximumHeight(118)
-        self.home_thinking.setPlaceholderText("模型思考摘要和执行阶段会在这里流式出现。")
-        chat_layout.addWidget(self.home_thinking)
-
-        self.home_input = ChatInput()
-        self.home_input.setPlaceholderText("输入问题；Enter 发送，Shift+Enter 换行")
-        self.home_input.setMaximumHeight(100)
-        self.home_input.send_requested.connect(self.send_home_request)
-        chat_layout.addWidget(self.home_input)
-        input_actions = QHBoxLayout()
-        context_label = QLabel("上下文：当前会话")
-        context_label.setProperty("muted", True)
-        self.home_send_button = QPushButton("发送")
-        self.home_send_button.setProperty("primary", True)
-        self.home_send_button.setIcon(self._icon(QStyle.StandardPixmap.SP_ArrowForward))
-        self.home_send_button.clicked.connect(self.send_home_request)
-        self.home_stop_button = QPushButton("中断")
-        self.home_stop_button.setProperty("danger", True)
-        self.home_stop_button.setIcon(self._icon(QStyle.StandardPixmap.SP_MediaStop))
-        self.home_stop_button.setToolTip("中断当前 AI 请求")
-        self.home_stop_button.setEnabled(False)
-        self.home_stop_button.clicked.connect(self.interrupt_home_request)
-        input_actions.addWidget(context_label)
-        input_actions.addStretch(1)
-        input_actions.addWidget(self.home_stop_button)
-        input_actions.addWidget(self.home_send_button)
-        chat_layout.addLayout(input_actions)
-        root.addWidget(chat_panel, 1)
-
-        trace_panel = QFrame()
-        trace_panel.setObjectName("tracePanel")
-        trace_panel.setFixedWidth(310)
-        trace_layout = QVBoxLayout(trace_panel)
-        trace_title = QLabel("运行轨迹")
-        trace_title.setProperty("sectionTitle", True)
-        self.home_stage = QLabel("等待提问")
-        self.home_stage.setObjectName("assistantSteps")
-        self.home_stage.setWordWrap(True)
-        self.home_trace = QPlainTextEdit()
-        self.home_trace.setReadOnly(True)
-        self.home_trace.setFont(QFont("Cascadia Mono", 9))
-        self.home_trace.setPlaceholderText("路径作用域、工具调用和扫描日志会显示在这里。")
-        trace_layout.addWidget(trace_title)
-        trace_layout.addWidget(self.home_stage)
-        trace_layout.addWidget(self.home_trace, 1)
-        root.addWidget(trace_panel)
-
+        page = AssistantPage()
+        page.new_chat_button.clicked.connect(self.new_conversation)
+        page.history_list.itemClicked.connect(self.load_conversation)
+        page.open_result_button.clicked.connect(self.open_latest_result)
+        page.scope_combo.currentIndexChanged.connect(self._scope_changed)
+        page.use_current_button.clicked.connect(self._use_current_scope)
+        page.input.send_requested.connect(self.send_home_request)
+        page.send_button.setIcon(self._icon(QStyle.StandardPixmap.SP_ArrowForward))
+        page.send_button.clicked.connect(self.send_home_request)
+        page.stop_button.setIcon(self._icon(QStyle.StandardPixmap.SP_MediaStop))
+        page.stop_button.clicked.connect(self.interrupt_home_request)
+        self.history_list = page.history_list
+        self.open_result_button = page.open_result_button
+        self.scope_combo = page.scope_combo
+        self.scope_path = page.scope_path
+        self.home_conversation = page.conversation
+        self.home_thinking = page.thinking
+        self.home_trace = page.trace
+        self.home_stage = page.stage
+        self.home_input = page.input
+        self.home_send_button = page.send_button
+        self.home_stop_button = page.stop_button
+        self.home_details_toggle = page.details_toggle
+        self.home_details_panel = page.details_panel
         self.agent_input = self.home_input
         self.prompt_edit = self.home_input
         self.agent_history = self.home_conversation

@@ -1,0 +1,77 @@
+# PanFetch AI 架构说明
+
+简体中文 | [English](../en-US/ARCHITECTURE.md)
+
+PanFetch AI 将界面、对话编排、网盘能力和确定性下载执行分层，避免 LLM 直接接触凭据或执行不可审计的写操作。
+
+```text
+PySide6 界面
+  |-- AssistantPage  AI 问答、范围、历史、折叠运行详情
+  |-- 网盘工作台     账号、目录、文件选择、快捷操作
+  |-- 下载计划       规则、候选文件、目标位置、人工确认
+  |-- 操作计划       后端、影响范围、风险、人工确认、结果
+  |-- 下载任务栏     进度、暂停、继续、取消
+  |
+应用服务
+  |-- ConfigStore          DPAPI 凭据和非敏感配置
+  |-- ConversationStore    本地 JSONL 对话与工具日志
+  |-- BaiduNetdiskClient   OpenAPI 目录、搜索、上传和文件管理
+  |-- BaiduMcpClient       官方托管 MCP 全盘分享
+  |-- BdpanBackend         可选转存与分享链接下载适配器
+  |-- NetdiskOperationExecutor 已确认的云端写操作
+  |-- Catalog              SQLite 本地目录索引
+  |-- LLMPlanner           OpenAI-compatible 模型适配
+  |-- NetdiskAgent         白名单意图和工具路由
+  |-- AssistantWorkflow    LangGraph 状态图和 LangChain 节点
+  |-- DownloadManager      路径映射、并发、重试和完整性校验
+  |
+百度网盘 API / LLM API / 本地文件系统
+```
+
+`AssistantPage` 只负责控件结构和键盘行为，`MainWindow` 负责把控件连接到应用服务并维护运行状态。这样可以独立调整高频变化的 AI 问答布局，不继续扩大主窗口中的页面构造代码。
+
+## AI 问答状态图
+
+```text
+START
+  -> route   LLM 或本地规则生成一个白名单 AgentDecision
+  -> tool    执行只读工具或生成待确认计划
+  -> answer  通过 OpenAI-compatible SSE 输出思考与回答
+  -> END     本地保存请求、回答、范围、动作和日志
+```
+
+每个节点由 LangChain `RunnableLambda` 包装，并通过 LangGraph `StateGraph` 编排。LangSmith tracing 默认关闭，只有配置标准环境变量后才会上报 trace。
+
+每次问答拥有独立的取消令牌和单调递增的 UI 运行 ID。中断会关闭活动流、让扫描和网络检查点抛出取消异常，并忽略旧任务的迟到事件，因此无需等待旧请求超时即可重新提问。
+
+## 信任与确认边界
+
+- LLM 不接收百度 Token、LLM API Key、下载直链或本地凭据文件。
+- 目录名、文件名、分享链接和模型输出均按不可信数据处理。
+- 只读工具可以直接运行；下载和所有云端写操作必须先生成独立计划。
+- 上传、移动、复制、重命名、新建目录、分享、转存和分享链接下载都需要用户确认。
+- 删除能力没有注册到 Agent 或操作执行器。
+- 远端路径会规范化，本地下载目标必须落在选定的绝对目录下。
+
+## 网盘后端分工
+
+原生 Python/OpenAPI 负责账号、容量、列表、搜索、元数据、上传、新建目录、移动、复制、重命名和普通下载。
+
+全盘分享先把经过规范化的路径解析为 `fs_id`，再通过百度官方托管 MCP 调用 `file_sharelink_set`。它使用现有 OAuth Token，不依赖 Windows 百度网盘客户端登录状态，也不依赖 `bdpan`。
+
+`BdpanBackend` 只负责分享链接转存和下载。它可以检测原生 `bdpan` 或 WSL 中的可执行文件；官方 Skill 的远端范围仍限制在 `/apps/bdpan/`。未安装时属于可选能力未配置，不影响 OpenAPI 和官方 MCP 功能。
+
+## 下载生命周期
+
+1. 扫描来源路径并生成预览。
+2. 在后台递归展开选中的文件夹并按文件 ID 去重。
+3. 打开独立计划页，展示规则和完整候选表。
+4. 用户选择本地目录并确认数量、体积和整理方式。
+5. 每批最多查询 10 个文件 ID 的下载元数据。
+6. 使用 1-10 个任务并发下载，每个文件最多尝试三次。
+7. 写入短名 `.part-*` 临时文件，同时计算 SHA-256 并校验体积。
+8. 原子移动到目标位置并写入下载清单。
+
+## 本地数据
+
+凭据存放在 `.secrets/`，非敏感设置存放在 `local_settings.json`，目录索引和会话历史存放在 `.panfetch-ai/`。这些路径均被 Git 忽略。日志会脱敏，但仍不应提交到公开仓库。

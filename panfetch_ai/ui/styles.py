@@ -29,13 +29,17 @@ QFrame#historyRail {
     padding-right: 6px;
 }
 QFrame#chatSurface { background: #10151C; border: 0; }
-QFrame#tracePanel {
-    background: #121A20;
-    border: 0;
-    border-left: 1px solid #2F4850;
-    padding-left: 6px;
+QFrame#scopeBar {
+    background: #131C24;
+    border: 1px solid #2B3B48;
+    border-radius: 5px;
 }
-QLabel#homeTitle { color: #F7FAFC; font-size: 24px; font-weight: 700; }
+QFrame#assistantDetails {
+    background: #121A20;
+    border: 1px solid #2D464B;
+    border-radius: 5px;
+}
+QLabel#homeTitle { color: #F7FAFC; font-size: 21px; font-weight: 700; }
 QLabel#planTitle { color: #F7FAFC; font-size: 24px; font-weight: 700; }
 QLabel#operationTitle { color: #F7FAFC; font-size: 24px; font-weight: 700; }
 QLabel#operationBackend {
@@ -171,11 +175,10 @@ QProgressBar {
 }
 QProgressBar::chunk { background: #37C78B; border-radius: 3px; }
 QLabel#assistantSteps {
-    background: #13252B;
-    border: 1px solid #255866;
-    border-radius: 5px;
-    padding: 9px;
-    color: #8DE0E6;
+    background: transparent;
+    border: 0;
+    padding: 4px 2px;
+    color: #77CBD2;
     font-weight: 600;
 }
 QPlainTextEdit#assistantHistory { background: #121920; border-left: 2px solid #247FA5; }
@@ -196,11 +199,12 @@ QPlainTextEdit#thinkingStream {
     color: #E6C98F;
     padding: 8px 10px;
 }
-QFrame#tracePanel QPlainTextEdit {
+QPlainTextEdit#traceStream {
     background: #111A1C;
     border-color: #2D4B49;
     color: #8FD1BC;
 }
+QTextEdit#assistantComposer { min-height: 58px; }
 QLabel[muted="true"] { color: #8D9AA8; }
 QLabel[state="success"] { color: #55D69A; font-weight: 600; }
 QLabel[state="error"] { color: #F08B84; font-weight: 600; }

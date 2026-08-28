@@ -1,5 +1,7 @@
 # Security Policy
 
+[简体中文](SECURITY.zh-CN.md) | English
+
 ## Credential storage
 
 PanFetch AI never stores Baidu Access Tokens or LLM API keys in JSON, source code, command-line arguments, or Git configuration. On Windows, credentials are encrypted with DPAPI and saved under the ignored `.secrets` directory.

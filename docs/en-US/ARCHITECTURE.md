@@ -1,10 +1,12 @@
 # PanFetch AI Architecture
 
+[简体中文](../zh-CN/ARCHITECTURE.md) | English
+
 PanFetch AI separates conversational orchestration, controlled netdisk tools, and deterministic download execution.
 
 ```text
 PySide6 UI
-  |-- AI Q&A: scoped conversation, thinking stream, history, execution trace
+  |-- AssistantPage: focused Q&A, scope, history, collapsible run details
   |-- Workspace: account, directory browser, file/folder selection, quick commands
   |-- Download plan: rules, full candidate table, destination, confirmation
   |-- Operation plan: target, backend, risk, confirmation, result
@@ -26,6 +28,8 @@ Application services
   |
 Baidu Netdisk API / LLM API / local filesystem
 ```
+
+`AssistantPage` owns only presentation widgets and keyboard behavior. `MainWindow` wires those widgets to application services and owns orchestration state. This keeps the high-change Q&A layout separate from the already large workspace and operation controller.
 
 ## Assistant graph
 

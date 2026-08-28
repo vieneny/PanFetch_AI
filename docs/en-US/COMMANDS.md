@@ -1,5 +1,7 @@
 # Command Reference
 
+[简体中文](../zh-CN/COMMANDS.md) | English
+
 All commands run inside the project environment and reuse the desktop application's encrypted authorization.
 
 ## Start the desktop application

@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QToolBar
 
 from panfetch_ai.core.models import OperationPlan, OperationResult, PlanPreview, RemoteItem, SelectionPlan
+from panfetch_ai.ui.assistant_page import AssistantPage
 from panfetch_ai.ui.main_window import ChatInput, MainWindow
 from panfetch_ai.ui.settings_dialog import SettingsDialog
 
@@ -25,6 +26,8 @@ def test_main_window_constructs(qtbot, monkeypatch, tmp_path) -> None:
     assert window.home_nav.property("active") is True
     assert window.home_nav.text() == "AI 问答"
     assert window.home_page.findChild(QLabel, "homeTitle").text() == "AI 问答"
+    assert isinstance(window.home_page, AssistantPage)
+    assert window.home_details_panel.isHidden() is True
     assert window.workspace_nav.property("active") is False
     assert window.scope_combo.currentData() == "global"
     assert window.scope_path.text() == "/"
@@ -48,6 +51,24 @@ def test_main_window_constructs(qtbot, monkeypatch, tmp_path) -> None:
     assert window.account_name.text() == "示例账号"
     assert window.account_meta.text() == "SVIP · UID 42"
     assert window.quota_progress.value() == 250
+
+
+def test_assistant_run_details_expand_only_on_request(qtbot, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("panfetch_ai.ui.main_window.QTimer.singleShot", lambda *_: None)
+    monkeypatch.setattr("panfetch_ai.core.catalog.DEFAULT_DB", tmp_path / "catalog.db")
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.home_details_toggle.isChecked() is False
+    assert window.home_details_panel.isHidden() is True
+
+    window.home_details_toggle.click()
+    assert window.home_details_toggle.isChecked() is True
+    assert window.home_details_panel.isHidden() is False
+
+    window.home_details_toggle.click()
+    assert window.home_details_toggle.isChecked() is False
+    assert window.home_details_panel.isHidden() is True
 
 
 def test_chat_input_enter_sends_and_shift_enter_adds_line(qtbot) -> None:
